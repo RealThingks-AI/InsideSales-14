@@ -12,7 +12,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { X } from "lucide-react";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { X, ChevronDown } from "lucide-react";
 import { Account } from "./AccountTable";
 
 const accountSchema = z.object({
@@ -380,25 +381,61 @@ export const AccountModal = ({ open, onOpenChange, account, onSuccess }: Account
             {/* Tags Multi-select */}
             <div className="space-y-2">
               <FormLabel>Tags</FormLabel>
-              <div className="flex flex-wrap gap-2 p-3 border rounded-md bg-background min-h-[80px]">
-                {tagOptions.map((tag) => (
-                  <Badge
-                    key={tag}
-                    variant={selectedTags.includes(tag) ? "default" : "outline"}
-                    className="cursor-pointer hover:opacity-80 transition-opacity"
-                    onClick={() => toggleTag(tag)}
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button
+                    variant="outline"
+                    role="combobox"
+                    className="w-full justify-between h-auto min-h-10"
                   >
-                    {tag}
-                    {selectedTags.includes(tag) && (
-                      <X className="w-3 h-3 ml-1" />
-                    )}
-                  </Badge>
-                ))}
-              </div>
+                    <div className="flex flex-wrap gap-1 flex-1">
+                      {selectedTags.length > 0 ? (
+                        selectedTags.slice(0, 3).map((tag) => (
+                          <Badge key={tag} variant="secondary" className="text-xs">
+                            {tag}
+                          </Badge>
+                        ))
+                      ) : (
+                        <span className="text-muted-foreground">Select tags...</span>
+                      )}
+                      {selectedTags.length > 3 && (
+                        <Badge variant="secondary" className="text-xs">
+                          +{selectedTags.length - 3} more
+                        </Badge>
+                      )}
+                    </div>
+                    <ChevronDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-[400px] p-0 bg-popover z-50" align="start">
+                  <div className="p-3 max-h-[300px] overflow-y-auto">
+                    <div className="flex flex-wrap gap-2">
+                      {tagOptions.map((tag) => (
+                        <Badge
+                          key={tag}
+                          variant={selectedTags.includes(tag) ? "default" : "outline"}
+                          className="cursor-pointer hover:opacity-80 transition-opacity"
+                          onClick={() => toggleTag(tag)}
+                        >
+                          {tag}
+                          {selectedTags.includes(tag) && (
+                            <X className="w-3 h-3 ml-1" />
+                          )}
+                        </Badge>
+                      ))}
+                    </div>
+                  </div>
+                </PopoverContent>
+              </Popover>
               {selectedTags.length > 0 && (
-                <p className="text-sm text-muted-foreground">
-                  Selected: {selectedTags.join(", ")}
-                </p>
+                <div className="flex flex-wrap gap-1">
+                  {selectedTags.map((tag) => (
+                    <Badge key={tag} variant="default" className="text-xs cursor-pointer" onClick={() => toggleTag(tag)}>
+                      {tag}
+                      <X className="w-3 h-3 ml-1" />
+                    </Badge>
+                  ))}
+                </div>
               )}
             </div>
 
