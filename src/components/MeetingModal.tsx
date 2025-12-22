@@ -559,76 +559,40 @@ export const MeetingModal = ({ open, onOpenChange, meeting, onSuccess }: Meeting
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-lg p-4">
-        <DialogHeader className="pb-2">
-          <DialogTitle className="text-lg">{meeting ? "Edit Meeting" : "New Meeting"}</DialogTitle>
+      <DialogContent className="max-w-md p-5">
+        <DialogHeader className="pb-3">
+          <DialogTitle className="text-base font-semibold">{meeting ? "Edit Meeting" : "New Meeting"}</DialogTitle>
         </DialogHeader>
         
-        <form onSubmit={handleSubmit} className="space-y-3">
-          {/* Row 1: Meeting Title */}
-          <div className="space-y-1">
-            <Label htmlFor="subject" className="text-sm">Meeting Title *</Label>
+        <form onSubmit={handleSubmit} className="space-y-4">
+          {/* Meeting Title */}
+          <div className="space-y-1.5">
+            <Label htmlFor="subject" className="text-xs font-medium">Meeting Title *</Label>
             <Input
               id="subject"
               value={formData.subject}
               onChange={(e) => setFormData(prev => ({ ...prev, subject: e.target.value }))}
               placeholder="Enter meeting title"
-              className="h-9"
+              className="h-8 text-sm"
               required
             />
           </div>
 
-          {/* Row 2: Timezone, Date, Time, Duration */}
-          <div className="flex items-end gap-2">
-            {/* Timezone - Icon only with dropdown */}
-            <div className="space-y-1">
-              <Label className="text-sm">Timezone</Label>
-              <TooltipProvider>
-                <Popover>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <PopoverTrigger asChild>
-                        <Button variant="outline" size="icon" className="h-9 w-9 shrink-0">
-                          <Globe className="h-4 w-4" />
-                        </Button>
-                      </PopoverTrigger>
-                    </TooltipTrigger>
-                    <TooltipContent>
-                      <p>{selectedTimezone?.label || timezone}</p>
-                    </TooltipContent>
-                  </Tooltip>
-                  <PopoverContent className="w-72 p-0 max-h-60 overflow-y-auto" align="start">
-                    <div className="p-1">
-                      {TIMEZONES.map((tz) => (
-                        <Button
-                          key={tz.value}
-                          variant={timezone === tz.value ? "secondary" : "ghost"}
-                          className="w-full justify-start text-xs h-8 font-normal"
-                          onClick={() => handleTimezoneChange(tz.value)}
-                        >
-                          {tz.label}
-                        </Button>
-                      ))}
-                    </div>
-                  </PopoverContent>
-                </Popover>
-              </TooltipProvider>
-            </div>
-
-            {/* Date */}
-            <div className="space-y-1 flex-1">
-              <Label className="text-sm">Date *</Label>
+          {/* Date, Time & Duration Row */}
+          <div className="grid grid-cols-3 gap-3">
+            <div className="space-y-1.5">
+              <Label className="text-xs font-medium">Date *</Label>
               <Popover>
                 <PopoverTrigger asChild>
                   <Button
                     variant="outline"
                     className={cn(
-                      "w-full h-9 justify-start text-left font-normal text-sm",
+                      "w-full h-8 justify-start text-left font-normal text-xs",
                       !startDate && "text-muted-foreground"
                     )}
                   >
-                    <CalendarIcon className="mr-2 h-4 w-4" />
-                    {startDate ? format(startDate, "dd MMM yyyy") : "Pick date"}
+                    <CalendarIcon className="mr-1.5 h-3.5 w-3.5" />
+                    {startDate ? format(startDate, "dd MMM") : "Select"}
                   </Button>
                 </PopoverTrigger>
                 <PopoverContent className="w-auto p-0 z-50" align="start">
@@ -644,56 +608,92 @@ export const MeetingModal = ({ open, onOpenChange, meeting, onSuccess }: Meeting
               </Popover>
             </div>
 
-            {/* Time */}
-            <div className="space-y-1 w-28">
-              <Label className="text-sm">Time *</Label>
+            <div className="space-y-1.5">
+              <Label className="text-xs font-medium">Time *</Label>
               <Popover>
                 <PopoverTrigger asChild>
                   <Button
                     variant="outline"
-                    className="w-full h-9 justify-start text-left font-normal text-sm"
+                    className="w-full h-8 justify-start text-left font-normal text-xs"
                   >
-                    <Clock className="mr-2 h-4 w-4" />
+                    <Clock className="mr-1.5 h-3.5 w-3.5" />
                     {formatDisplayTime(startTime)}
                   </Button>
                 </PopoverTrigger>
-                <PopoverContent className="w-32 p-0 z-50 max-h-48 overflow-y-auto" align="start">
-                  <div className="p-1">
-                    {availableStartTimeSlots.length > 0 ? (
-                      availableStartTimeSlots.map((slot) => (
-                        <Button
-                          key={slot}
-                          variant={startTime === slot ? "secondary" : "ghost"}
-                          className="w-full justify-start text-xs h-7"
-                          onClick={() => setStartTime(slot)}
-                        >
-                          {formatDisplayTime(slot)}
-                        </Button>
-                      ))
-                    ) : (
-                      <p className="text-xs text-muted-foreground p-2">No times available</p>
-                    )}
-                  </div>
+                <PopoverContent className="w-28 p-1 z-50 max-h-48 overflow-y-auto" align="start">
+                  {availableStartTimeSlots.length > 0 ? (
+                    availableStartTimeSlots.map((slot) => (
+                      <Button
+                        key={slot}
+                        variant={startTime === slot ? "secondary" : "ghost"}
+                        className="w-full justify-start text-xs h-7"
+                        onClick={() => setStartTime(slot)}
+                      >
+                        {formatDisplayTime(slot)}
+                      </Button>
+                    ))
+                  ) : (
+                    <p className="text-xs text-muted-foreground p-2">No times available</p>
+                  )}
                 </PopoverContent>
               </Popover>
             </div>
 
-            {/* Duration */}
-            <div className="space-y-1 w-24">
-              <Label className="text-sm">Duration *</Label>
+            <div className="space-y-1.5">
+              <Label className="text-xs font-medium">Duration *</Label>
               <Select value={duration} onValueChange={setDuration}>
-                <SelectTrigger className="h-9 text-sm">
+                <SelectTrigger className="h-8 text-xs">
                   <SelectValue placeholder="Duration" />
                 </SelectTrigger>
                 <SelectContent>
                   {DURATION_OPTIONS.map((opt) => (
-                    <SelectItem key={opt.value} value={opt.value} className="text-sm">
+                    <SelectItem key={opt.value} value={opt.value} className="text-xs">
                       {opt.label}
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
             </div>
+          </div>
+
+          {/* Timezone - Compact inline */}
+          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+            <TooltipProvider>
+              <Popover>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <PopoverTrigger asChild>
+                      <Button variant="ghost" size="sm" className="h-6 px-2 text-xs gap-1.5 text-muted-foreground hover:text-foreground">
+                        <Globe className="h-3 w-3" />
+                        {selectedTimezone?.short || timezone}
+                      </Button>
+                    </PopoverTrigger>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    <p>{selectedTimezone?.label || timezone}</p>
+                  </TooltipContent>
+                </Tooltip>
+                <PopoverContent className="w-72 p-0 max-h-60 overflow-y-auto" align="start">
+                  <div className="p-1">
+                    {TIMEZONES.map((tz) => (
+                      <Button
+                        key={tz.value}
+                        variant={timezone === tz.value ? "secondary" : "ghost"}
+                        className="w-full justify-start text-xs h-7 font-normal"
+                        onClick={() => handleTimezoneChange(tz.value)}
+                      >
+                        {tz.label}
+                      </Button>
+                    ))}
+                  </div>
+                </PopoverContent>
+              </Popover>
+            </TooltipProvider>
+            <span className="text-muted-foreground/60">•</span>
+            <span className="flex items-center gap-1">
+              <User className="h-3 w-3" />
+              {user?.email || 'You'}
+            </span>
           </div>
 
           {/* Conflict Warning */}
@@ -705,30 +705,24 @@ export const MeetingModal = ({ open, onOpenChange, meeting, onSuccess }: Meeting
             />
           )}
 
-          {/* Organizer (read-only) */}
-          <div className="flex items-center gap-2 text-sm text-muted-foreground bg-muted/50 px-3 py-2 rounded-md">
-            <User className="h-4 w-4" />
-            <span>Organizer: {user?.email || 'You'}</span>
-          </div>
-
-          {/* Row 3: Related To with inline (+) for Participants */}
-          <div className="space-y-1">
+          {/* Related To */}
+          <div className="space-y-1.5">
             <div className="flex items-center justify-between">
-              <Label className="text-sm">Related To *</Label>
+              <Label className="text-xs font-medium">Related To *</Label>
               <Button
                 type="button"
                 variant="ghost"
                 size="sm"
-                className="h-6 px-2 text-xs gap-1"
+                className="h-5 px-1.5 text-xs gap-1 text-muted-foreground hover:text-foreground"
                 onClick={() => setShowParticipantsInput(!showParticipantsInput)}
               >
                 <Plus className="h-3 w-3" />
-                Participants
+                Add Participants
               </Button>
             </div>
             
             <div className="flex items-center gap-2">
-              <div className="flex items-center gap-0.5 bg-muted rounded-md p-0.5 shrink-0">
+              <div className="flex items-center bg-muted rounded p-0.5 shrink-0">
                 <Button
                   type="button"
                   variant={linkType === 'lead' ? 'secondary' : 'ghost'}
@@ -737,7 +731,7 @@ export const MeetingModal = ({ open, onOpenChange, meeting, onSuccess }: Meeting
                     setLinkType('lead');
                     setFormData(prev => ({ ...prev, contact_id: '' }));
                   }}
-                  className="h-7 px-3 text-xs"
+                  className="h-6 px-2.5 text-xs"
                 >
                   Lead
                 </Button>
@@ -749,7 +743,7 @@ export const MeetingModal = ({ open, onOpenChange, meeting, onSuccess }: Meeting
                     setLinkType('contact');
                     setFormData(prev => ({ ...prev, lead_id: '' }));
                   }}
-                  className="h-7 px-3 text-xs"
+                  className="h-6 px-2.5 text-xs"
                 >
                   Contact
                 </Button>
@@ -761,17 +755,14 @@ export const MeetingModal = ({ open, onOpenChange, meeting, onSuccess }: Meeting
                     value={formData.lead_id}
                     onValueChange={(value) => setFormData(prev => ({ ...prev, lead_id: value === "none" ? "" : value }))}
                   >
-                    <SelectTrigger className="h-9 text-sm">
+                    <SelectTrigger className="h-8 text-xs">
                       <SelectValue placeholder="Select a lead" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="none">None</SelectItem>
+                      <SelectItem value="none" className="text-xs">None</SelectItem>
                       {leads.map((lead) => (
-                        <SelectItem key={lead.id} value={lead.id}>
-                          <div className="flex flex-col">
-                            <span>{lead.lead_name}</span>
-                            {lead.email && <span className="text-xs text-muted-foreground">{lead.email}</span>}
-                          </div>
+                        <SelectItem key={lead.id} value={lead.id} className="text-xs">
+                          {lead.lead_name}
                         </SelectItem>
                       ))}
                     </SelectContent>
@@ -781,17 +772,14 @@ export const MeetingModal = ({ open, onOpenChange, meeting, onSuccess }: Meeting
                     value={formData.contact_id}
                     onValueChange={(value) => setFormData(prev => ({ ...prev, contact_id: value === "none" ? "" : value }))}
                   >
-                    <SelectTrigger className="h-9 text-sm">
+                    <SelectTrigger className="h-8 text-xs">
                       <SelectValue placeholder="Select a contact" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="none">None</SelectItem>
+                      <SelectItem value="none" className="text-xs">None</SelectItem>
                       {contacts.map((contact) => (
-                        <SelectItem key={contact.id} value={contact.id}>
-                          <div className="flex flex-col">
-                            <span>{contact.contact_name}</span>
-                            {contact.email && <span className="text-xs text-muted-foreground">{contact.email}</span>}
-                          </div>
+                        <SelectItem key={contact.id} value={contact.id} className="text-xs">
+                          {contact.contact_name}
                         </SelectItem>
                       ))}
                     </SelectContent>
@@ -801,17 +789,17 @@ export const MeetingModal = ({ open, onOpenChange, meeting, onSuccess }: Meeting
             </div>
           </div>
 
-          {/* Participants (External Emails) - Collapsible */}
+          {/* Participants - Collapsible */}
           {showParticipantsInput && (
-            <div className="space-y-2 pl-0">
-              <Label className="text-sm">Participants (External Emails)</Label>
-              <div className="flex gap-2">
+            <div className="space-y-1.5 border-l-2 border-muted pl-3">
+              <Label className="text-xs font-medium">External Participants</Label>
+              <div className="flex gap-1.5">
                 <Input
                   type="email"
                   value={emailInput}
                   onChange={(e) => setEmailInput(e.target.value)}
-                  placeholder="Enter email address"
-                  className="h-9 text-sm"
+                  placeholder="email@example.com"
+                  className="h-7 text-xs"
                   onKeyDown={(e) => {
                     if (e.key === 'Enter') {
                       e.preventDefault();
@@ -823,23 +811,23 @@ export const MeetingModal = ({ open, onOpenChange, meeting, onSuccess }: Meeting
                   type="button"
                   variant="outline"
                   size="icon"
-                  className="h-9 w-9 shrink-0"
+                  className="h-7 w-7 shrink-0"
                   onClick={addParticipant}
                 >
-                  <Plus className="h-4 w-4" />
+                  <Plus className="h-3 w-3" />
                 </Button>
               </div>
               {participants.length > 0 && (
-                <div className="flex flex-wrap gap-1.5">
+                <div className="flex flex-wrap gap-1">
                   {participants.map((email, index) => (
-                    <Badge key={index} variant="secondary" className="gap-1 pr-1 text-xs">
+                    <Badge key={index} variant="secondary" className="gap-0.5 pr-0.5 text-xs h-5">
                       {email}
                       <button
                         type="button"
                         onClick={() => setParticipants(prev => prev.filter((_, i) => i !== index))}
-                        className="ml-1 hover:bg-muted-foreground/20 rounded-full p-0.5"
+                        className="ml-0.5 hover:bg-muted-foreground/20 rounded-full p-0.5"
                       >
-                        <X className="h-3 w-3" />
+                        <X className="h-2.5 w-2.5" />
                       </button>
                     </Badge>
                   ))}
@@ -848,20 +836,20 @@ export const MeetingModal = ({ open, onOpenChange, meeting, onSuccess }: Meeting
             </div>
           )}
 
-          {/* Row 4: Description / Agenda */}
-          <div className="space-y-1">
-            <Label htmlFor="description" className="text-sm">Description / Agenda</Label>
+          {/* Description */}
+          <div className="space-y-1.5">
+            <Label htmlFor="description" className="text-xs font-medium">Agenda</Label>
             <Textarea
               id="description"
               value={formData.description}
               onChange={(e) => setFormData(prev => ({ ...prev, description: e.target.value }))}
-              placeholder="Meeting agenda and details..."
+              placeholder="Meeting agenda..."
               rows={2}
-              className="text-sm resize-none"
+              className="text-xs resize-none min-h-[60px]"
             />
           </div>
 
-          {/* Outcome - only show for existing meetings */}
+          {/* Outcome - only for existing meetings */}
           {meeting && (
             <MeetingOutcomeSelect
               value={formData.outcome}
@@ -870,7 +858,7 @@ export const MeetingModal = ({ open, onOpenChange, meeting, onSuccess }: Meeting
           )}
 
           {/* Actions */}
-          <div className="flex justify-between gap-2 pt-2 border-t">
+          <div className="flex justify-between items-center gap-2 pt-3 border-t">
             <div>
               {meeting && meeting.join_url && (
                 <Button 
@@ -879,25 +867,25 @@ export const MeetingModal = ({ open, onOpenChange, meeting, onSuccess }: Meeting
                   size="sm"
                   disabled={cancellingMeeting || loading}
                   onClick={handleCancelMeeting}
-                  className="gap-1.5 h-9"
+                  className="gap-1 h-8 text-xs"
                 >
                   {cancellingMeeting ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
+                    <Loader2 className="h-3 w-3 animate-spin" />
                   ) : (
-                    <XCircle className="h-4 w-4" />
+                    <XCircle className="h-3 w-3" />
                   )}
-                  {cancellingMeeting ? "Cancelling..." : "Cancel Meeting"}
+                  {cancellingMeeting ? "Cancelling..." : "Cancel"}
                 </Button>
               )}
             </div>
             <div className="flex gap-2">
-              <Button type="button" variant="outline" size="sm" className="h-9" onClick={() => onOpenChange(false)}>
+              <Button type="button" variant="outline" size="sm" className="h-8 text-xs" onClick={() => onOpenChange(false)}>
                 Close
               </Button>
               <Button 
                 type="button"
                 size="sm"
-                className="gap-1.5 h-9"
+                className="gap-1 h-8 text-xs"
                 disabled={loading || creatingTeamsMeeting || cancellingMeeting}
                 onClick={async (e) => {
                   e.preventDefault();
@@ -921,9 +909,9 @@ export const MeetingModal = ({ open, onOpenChange, meeting, onSuccess }: Meeting
                 }}
               >
                 {(loading || creatingTeamsMeeting) ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
+                  <Loader2 className="h-3 w-3 animate-spin" />
                 ) : (
-                  <Video className="h-4 w-4" />
+                  <Video className="h-3 w-3" />
                 )}
                 {loading ? "Saving..." : creatingTeamsMeeting ? "Creating..." : meeting ? "Update" : "Create Meeting"}
               </Button>
