@@ -9,6 +9,7 @@ import { Plus, Search } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { BulkActionsBar } from "./BulkActionsBar";
 import { DealsAdvancedFilter, AdvancedFilterState } from "./DealsAdvancedFilter";
+import { DeleteConfirmDialog } from "./shared/DeleteConfirmDialog";
 
 interface KanbanBoardProps {
   deals: Deal[];
@@ -33,6 +34,8 @@ export const KanbanBoard = ({
   const [selectedDeals, setSelectedDeals] = useState<Set<string>>(new Set());
   const [selectionMode, setSelectionMode] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [dealToDelete, setDealToDelete] = useState<Deal | null>(null);
   const [filters, setFilters] = useState<AdvancedFilterState>({
     stages: [],
     regions: [],
@@ -146,6 +149,12 @@ export const KanbanBoard = ({
     try {
       console.log(`Moving deal ${draggableId} to stage ${newStage}`);
       
+      // Show immediate visual feedback
+      toast({
+        title: "Moving Deal...",
+        description: `Moving to ${newStage} stage`,
+      });
+      
       // Create update object with the new stage
       const updates: Partial<Deal> = {
         stage: newStage
@@ -154,8 +163,8 @@ export const KanbanBoard = ({
       await onUpdateDeal(draggableId, updates);
       
       toast({
-        title: "Deal Updated",
-        description: `Deal moved to ${newStage} stage`,
+        title: "Deal Moved",
+        description: `Successfully moved to ${newStage} stage`,
       });
     } catch (error) {
       console.error("Error updating deal stage:", error);
@@ -436,11 +445,9 @@ export const KanbanBoard = ({
                                     isSelected={selectedDeals.has(deal.id)}
                                     selectionMode={selectionMode}
                                     onDelete={(dealId) => {
-                                      onDeleteDeals([dealId]);
-                                      toast({
-                                        title: "Deal deleted",
-                                        description: `Successfully deleted ${deal.project_name || 'deal'}`,
-                                      });
+                                      const targetDeal = deals.find(d => d.id === dealId);
+                                      setDealToDelete(targetDeal || null);
+                                      setDeleteDialogOpen(true);
                                     }}
                                     onStageChange={handleDealCardAction}
                                   />
@@ -469,6 +476,25 @@ export const KanbanBoard = ({
           onClearSelection={() => setSelectedDeals(new Set())}
         />
       </div>
+
+      {/* Delete confirmation dialog */}
+      <DeleteConfirmDialog
+        open={deleteDialogOpen}
+        onOpenChange={setDeleteDialogOpen}
+        onConfirm={() => {
+          if (dealToDelete) {
+            onDeleteDeals([dealToDelete.id]);
+            toast({
+              title: "Deal deleted",
+              description: `Successfully deleted ${dealToDelete.project_name || 'deal'}`,
+            });
+            setDealToDelete(null);
+          }
+        }}
+        title="Delete Deal"
+        itemName={dealToDelete?.project_name || 'this deal'}
+        itemType="deal"
+      />
     </div>
   );
 };
