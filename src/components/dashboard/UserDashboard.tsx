@@ -29,6 +29,7 @@ import { Task } from "@/types/task";
 import { EmptyState } from "@/components/shared/EmptyState";
 import { GlobalSearch } from "@/components/shared/GlobalSearch";
 import { WidgetLoadingSkeleton } from "./widgets/WidgetLoadingSkeleton";
+import { DailyTasksPopup } from "./DailyTasksPopup";
 
 // Static color mappings to avoid dynamic Tailwind class issues
 const COLOR_CLASSES = {
@@ -1982,6 +1983,14 @@ const UserDashboard = ({ hideHeader = false }: UserDashboardProps) => {
           queryClient.invalidateQueries({ queryKey: ['user-accounts-enhanced', user?.id] });
           setAccountModalOpen(false);
           toast.success("Account created");
+        }}
+      />
+
+      {/* Daily Tasks Popup - shows once per day */}
+      <DailyTasksPopup 
+        onViewTask={(task) => {
+          setSelectedTask(task);
+          setTaskModalOpen(true);
         }}
       />
     </div>

@@ -188,7 +188,7 @@ const Tasks = () => {
               {/* Actions Dropdown */}
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
-                  <Button variant="outline" size="sm" className="gap-1">
+                  <Button variant="outline" size="sm">
                     Actions
                   </Button>
                 </DropdownMenuTrigger>
@@ -216,8 +216,8 @@ const Tasks = () => {
                 </DropdownMenuContent>
               </DropdownMenu>
 
-              <Button size="sm" onClick={() => setShowModal(true)}>
-                <Plus className="h-4 w-4 mr-1" />
+              <Button size="sm" className="gap-1.5" onClick={() => setShowModal(true)}>
+                <Plus className="w-4 h-4" />
                 Add Task
               </Button>
             </div>
