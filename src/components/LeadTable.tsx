@@ -645,7 +645,7 @@ const LeadTable = forwardRef<LeadTableRef, LeadTableProps>(({
                   {visibleColumns.map(column => (
                     <TableHead 
                       key={column.field} 
-                      className="text-left font-bold text-foreground px-4 py-3 whitespace-nowrap"
+                      className="text-left font-bold text-foreground px-4 py-3 whitespace-nowrap min-w-[80px]"
                     >
                       <div 
                         className="group flex items-center gap-2 cursor-pointer hover:text-primary" 
@@ -690,7 +690,7 @@ const LeadTable = forwardRef<LeadTableRef, LeadTableProps>(({
                   pageLeads.map(lead => (
                     <TableRow 
                       key={lead.id} 
-                      className="group hover:bg-muted/20 border-b" 
+                      className={`group hover:bg-muted/30 border-b transition-colors ${selectedLeads.includes(lead.id) ? 'bg-primary/5' : ''}`}
                       data-state={selectedLeads.includes(lead.id) ? "selected" : undefined}
                     >
                       <TableCell className="text-center px-4 py-3">
