@@ -32,7 +32,7 @@ interface EdgeFunctionStatus {
   name: string;
   displayName: string;
   category: 'email' | 'task' | 'meeting' | 'system' | 'utility';
-  status: 'active' | 'error' | 'unknown' | 'deprecated';
+  status: 'active' | 'error' | 'unknown' | 'deprecated' | 'never_used';
   lastActivity?: string;
   activityCount?: number;
   description: string;
@@ -81,7 +81,10 @@ const EdgeFunctionMonitor = ({ embedded = false }: EdgeFunctionMonitorProps) => 
         supabase.from('profiles').select('id', { count: 'exact', head: true }),
       ]);
 
-      const getStatus = (data: any, field: string = 'created_at'): { status: 'active' | 'unknown', lastActivity?: string } => {
+      const getStatus = (data: any, field: string = 'created_at'): { status: 'active' | 'unknown' | 'never_used', lastActivity?: string } => {
+        if (!data?.data || data.data.length === 0) {
+          return { status: 'never_used' };
+        }
         if (data?.data?.[0]) {
           const activityDate = data.data[0][field];
           if (activityDate) {
@@ -96,7 +99,21 @@ const EdgeFunctionMonitor = ({ embedded = false }: EdgeFunctionMonitorProps) => 
         return { status: 'unknown' };
       };
 
-      const keepAliveStatus = getStatus(keepAliveResult, 'Able to read DB');
+      // Get keep-alive status - use 'Able to read DB' or fallback to 'created_at'
+      let keepAliveStatus: { status: 'active' | 'unknown' | 'never_used', lastActivity?: string } = { status: 'never_used' };
+      if (keepAliveResult?.data?.[0]) {
+        const record = keepAliveResult.data[0];
+        const lastPing = record['Able to read DB'] || record.created_at;
+        if (lastPing) {
+          const date = new Date(lastPing);
+          const hoursAgo = (Date.now() - date.getTime()) / (1000 * 60 * 60);
+          keepAliveStatus = {
+            status: hoursAgo < 48 ? 'active' : 'unknown',
+            lastActivity: lastPing
+          };
+        }
+      }
+
       const emailStatus = getStatus(emailHistoryResult, 'sent_at');
       const bounceStatus = getStatus(bouncesResult, 'bounced_at');
       const replyStatus = getStatus(repliesResult, 'received_at');
@@ -376,6 +393,8 @@ const EdgeFunctionMonitor = ({ embedded = false }: EdgeFunctionMonitorProps) => 
         return <Badge variant="destructive">Error</Badge>;
       case 'deprecated':
         return <Badge className="bg-yellow-500/10 text-yellow-600 border-yellow-500/20">Deprecated</Badge>;
+      case 'never_used':
+        return <Badge className="bg-blue-500/10 text-blue-600 border-blue-500/20">Never Used</Badge>;
       default:
         return <Badge variant="outline">Unknown</Badge>;
     }

@@ -23,7 +23,7 @@ interface EdgeFunction {
   name: string;
   displayName: string;
   category: 'email' | 'task' | 'meeting' | 'system' | 'utility';
-  status: 'active' | 'error' | 'unknown' | 'deprecated';
+  status: 'active' | 'error' | 'unknown' | 'deprecated' | 'never_used';
   lastActivity?: string;
   activityCount?: number;
   description: string;
@@ -154,6 +154,8 @@ const EdgeFunctionDetailsDialog = ({ open, onOpenChange, func, onTestComplete }:
         return <Badge variant="destructive">Error</Badge>;
       case 'deprecated':
         return <Badge className="bg-yellow-500/10 text-yellow-600 border-yellow-500/20">Deprecated</Badge>;
+      case 'never_used':
+        return <Badge className="bg-blue-500/10 text-blue-600 border-blue-500/20">Never Used</Badge>;
       default:
         return <Badge variant="outline">Unknown</Badge>;
     }

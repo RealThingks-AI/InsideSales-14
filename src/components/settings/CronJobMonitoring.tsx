@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -27,7 +27,7 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/component
 
 interface KeepAliveStatus {
   lastPing: string | null;
-  status: 'active' | 'warning' | 'error' | 'unknown';
+  status: 'active' | 'warning' | 'error' | 'unknown' | 'never_used';
   hoursAgo: number | null;
 }
 
@@ -38,6 +38,9 @@ interface CronJobMonitoringProps {
 const SUPABASE_PROJECT_ID = 'narvjcteixgjclvjvlbn';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5hcnZqY3RlaXhnamNsdmp2bGJuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjUxNzMwODQsImV4cCI6MjA4MDc0OTA4NH0.M_-YQYDJqrEKguqwcJwM5mx2PSt1vFRZ0qytaxSlMMA';
 
+// Auto-refresh interval in milliseconds (30 seconds)
+const AUTO_REFRESH_INTERVAL = 30000;
+
 const CronJobMonitoring = ({ embedded = false }: CronJobMonitoringProps) => {
   const [keepAlive, setKeepAlive] = useState<KeepAliveStatus>({
     lastPing: null,
@@ -47,11 +50,13 @@ const CronJobMonitoring = ({ embedded = false }: CronJobMonitoringProps) => {
   const [loading, setLoading] = useState(true);
   const [testing, setTesting] = useState(false);
   const [howItWorksOpen, setHowItWorksOpen] = useState(false);
+  const [lastRefresh, setLastRefresh] = useState<Date>(new Date());
+  const intervalRef = useRef<NodeJS.Timeout | null>(null);
 
   const keepAliveEndpoint = `https://${SUPABASE_PROJECT_ID}.supabase.co/functions/v1/keep-alive`;
 
-  const fetchKeepAliveStatus = useCallback(async () => {
-    setLoading(true);
+  const fetchKeepAliveStatus = useCallback(async (showLoadingState = true) => {
+    if (showLoadingState) setLoading(true);
     try {
       const { data, error } = await supabase
         .from('keep_alive')
@@ -60,27 +65,42 @@ const CronJobMonitoring = ({ embedded = false }: CronJobMonitoringProps) => {
         .limit(1)
         .single();
 
-      if (error && error.code !== 'PGRST116') {
+      if (error) {
+        // PGRST116 = no rows found
+        if (error.code === 'PGRST116') {
+          console.log('No keep-alive records found - table is empty');
+          setKeepAlive({ lastPing: null, status: 'never_used', hoursAgo: null });
+          return;
+        }
         console.error('Error fetching keep-alive status:', error);
         setKeepAlive({ lastPing: null, status: 'error', hoursAgo: null });
         return;
       }
 
-      if (data && data['Able to read DB']) {
-        const lastPing = data['Able to read DB'];
-        const hoursAgo = differenceInHours(new Date(), new Date(lastPing));
+      if (data) {
+        // Try 'Able to read DB' first, then fall back to created_at
+        const lastPing = data['Able to read DB'] || data.created_at;
         
-        let status: KeepAliveStatus['status'] = 'active';
-        if (hoursAgo > 48) {
-          status = 'error';
-        } else if (hoursAgo > 25) {
-          status = 'warning';
-        }
+        if (lastPing) {
+          const pingDate = new Date(lastPing);
+          const hoursAgo = differenceInHours(new Date(), pingDate);
+          
+          let status: KeepAliveStatus['status'] = 'active';
+          if (hoursAgo > 48) {
+            status = 'error';
+          } else if (hoursAgo > 25) {
+            status = 'warning';
+          }
 
-        setKeepAlive({ lastPing, status, hoursAgo });
+          setKeepAlive({ lastPing, status, hoursAgo });
+        } else {
+          setKeepAlive({ lastPing: null, status: 'unknown', hoursAgo: null });
+        }
       } else {
-        setKeepAlive({ lastPing: null, status: 'unknown', hoursAgo: null });
+        setKeepAlive({ lastPing: null, status: 'never_used', hoursAgo: null });
       }
+      
+      setLastRefresh(new Date());
     } catch (error) {
       console.error('Error fetching keep-alive:', error);
       setKeepAlive({ lastPing: null, status: 'error', hoursAgo: null });
@@ -91,6 +111,17 @@ const CronJobMonitoring = ({ embedded = false }: CronJobMonitoringProps) => {
 
   useEffect(() => {
     fetchKeepAliveStatus();
+    
+    // Set up auto-refresh
+    intervalRef.current = setInterval(() => {
+      fetchKeepAliveStatus(false); // Don't show loading state for auto-refresh
+    }, AUTO_REFRESH_INTERVAL);
+    
+    return () => {
+      if (intervalRef.current) {
+        clearInterval(intervalRef.current);
+      }
+    };
   }, [fetchKeepAliveStatus]);
 
   const handleTestKeepAlive = async () => {
@@ -147,6 +178,7 @@ const CronJobMonitoring = ({ embedded = false }: CronJobMonitoringProps) => {
       case 'active': return 'Active';
       case 'warning': return 'Warning';
       case 'error': return 'Inactive';
+      case 'never_used': return 'Never Used';
       default: return 'Unknown';
     }
   };
@@ -162,7 +194,7 @@ const CronJobMonitoring = ({ embedded = false }: CronJobMonitoringProps) => {
               Monitor scheduled jobs and database connectivity
             </p>
           </div>
-          <Button variant="outline" size="sm" onClick={fetchKeepAliveStatus} disabled={loading}>
+          <Button variant="outline" size="sm" onClick={() => fetchKeepAliveStatus()} disabled={loading}>
             <RefreshCw className={`h-4 w-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
             Refresh
           </Button>
@@ -197,7 +229,7 @@ const CronJobMonitoring = ({ embedded = false }: CronJobMonitoringProps) => {
               )}
               Test Now
             </Button>
-            <Button variant="outline" size="sm" onClick={fetchKeepAliveStatus} disabled={loading}>
+            <Button variant="outline" size="sm" onClick={() => fetchKeepAliveStatus()} disabled={loading}>
               <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
             </Button>
           </div>
