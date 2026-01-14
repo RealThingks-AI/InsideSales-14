@@ -222,18 +222,20 @@ async function sendEmail(
   };
 
   // Add threading headers for replies (so email clients group them together)
+  // Microsoft Graph requires custom headers to start with 'x-' prefix
+  // Standard headers like In-Reply-To and References must use x- prefix
   if (emailRequest.isReply && parentMessageId) {
     emailPayload.message.internetMessageHeaders = [
       {
-        name: "In-Reply-To",
+        name: "x-in-reply-to",
         value: parentMessageId,
       },
       {
-        name: "References",
+        name: "x-references",
         value: parentMessageId,
       },
     ];
-    console.log(`Adding threading headers: In-Reply-To: ${parentMessageId}`);
+    console.log(`Adding threading headers: x-in-reply-to: ${parentMessageId}`);
   }
 
   // Add attachments if present
