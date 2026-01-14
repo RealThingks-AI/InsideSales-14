@@ -561,12 +561,31 @@ const handler = async (req: Request): Promise<Response> => {
     // Send email - use reply endpoint if we have the Graph message ID, otherwise send as new
     if (isReply && graphMessageId) {
       console.log("Using Graph Reply API for proper threading");
-      await sendReplyEmail(
-        accessToken,
-        { to, subject, body, toName, from, attachments, isReply },
-        emailRecord.id,
-        graphMessageId
-      );
+      try {
+        await sendReplyEmail(
+          accessToken,
+          { to, subject, body, toName, from, attachments, isReply },
+          emailRecord.id,
+          graphMessageId
+        );
+      } catch (replyError: any) {
+        // Check if this is a permission error (403)
+        if (replyError.message?.includes("403") || replyError.message?.includes("AccessDenied")) {
+          console.warn("Reply API failed due to permissions. The Azure app may need Mail.ReadWrite permission.");
+          console.log("Falling back to sendMail endpoint...");
+          
+          // Fall back to sending as a new email with "Re:" prefix if not already present
+          const replySubject = subject.toLowerCase().startsWith("re:") ? subject : `Re: ${subject}`;
+          await sendNewEmail(
+            accessToken, 
+            { to, subject: replySubject, body, toName, from, attachments, isReply }, 
+            emailRecord.id
+          );
+        } else {
+          // Re-throw other errors
+          throw replyError;
+        }
+      }
     } else {
       if (isReply) {
         console.log("Could not find original message for reply, sending as new email");
