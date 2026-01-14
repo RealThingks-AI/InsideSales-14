@@ -174,33 +174,44 @@ function rewriteLinksForTracking(html: string, emailHistoryId: string, supabaseU
 
 // Send a new email (not a reply)
 async function sendNewEmail(
-  accessToken: string, 
-  emailRequest: EmailRequest, 
+  accessToken: string,
+  emailRequest: EmailRequest,
   emailHistoryId: string
 ): Promise<void> {
   const graphUrl = `https://graph.microsoft.com/v1.0/users/${emailRequest.from}/sendMail`;
 
   // Build attachments array for Microsoft Graph API
-  const attachments = emailRequest.attachments?.map(att => ({
-    "@odata.type": "#microsoft.graph.fileAttachment",
-    name: att.name,
-    contentType: att.contentType,
-    contentBytes: att.contentBytes,
-  })) || [];
+  const attachments =
+    emailRequest.attachments?.map((att) => ({
+      "@odata.type": "#microsoft.graph.fileAttachment",
+      name: att.name,
+      contentType: att.contentType,
+      contentBytes: att.contentBytes,
+    })) || [];
 
   // Generate tracking pixel URL for open tracking
   const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
   const trackingPixelUrl = `${supabaseUrl}/functions/v1/track-email-open?id=${emailHistoryId}`;
-  
+
   // Wrap the content with proper inline styles for email clients
   const wrappedBody = wrapEmailContent(emailRequest.body);
-  
+
   // Rewrite links for click tracking
   const bodyWithClickTracking = rewriteLinksForTracking(wrappedBody, emailHistoryId, supabaseUrl);
-  
+
   // Embed tracking pixel in email body (append to HTML content)
   const trackingPixel = `<img src="${trackingPixelUrl}" width="1" height="1" style="display:none;" alt="" />`;
   const bodyWithTracking = bodyWithClickTracking + trackingPixel;
+
+  // If we're sending a reply via /sendMail (fallback when Graph Reply API isn't allowed),
+  // explicitly set RFC headers so Outlook/Exchange can thread the message.
+  const internetMessageHeaders: Array<{ name: string; value: string }> = [];
+  if (emailRequest.isReply && emailRequest.parentMessageId) {
+    internetMessageHeaders.push(
+      { name: "In-Reply-To", value: emailRequest.parentMessageId },
+      { name: "References", value: emailRequest.parentMessageId }
+    );
+  }
 
   const emailPayload: any = {
     message: {
@@ -217,6 +228,7 @@ async function sendNewEmail(
           },
         },
       ],
+      ...(internetMessageHeaders.length > 0 ? { internetMessageHeaders } : {}),
     },
     saveToSentItems: true,
   };
@@ -227,7 +239,9 @@ async function sendNewEmail(
     console.log(`Adding ${attachments.length} attachment(s) to email`);
   }
 
-  console.log(`Sending new email to ${emailRequest.to} with open tracking...`);
+  console.log(
+    `Sending ${emailRequest.isReply ? "reply" : "new"} email to ${emailRequest.to} with open tracking...`
+  );
 
   const response = await fetch(graphUrl, {
     method: "POST",
@@ -244,7 +258,7 @@ async function sendNewEmail(
     throw new Error(`Failed to send email: ${response.status} ${errorText}`);
   }
 
-  console.log("New email sent successfully with open tracking embedded");
+  console.log("Email sent successfully (sendMail) with tracking embedded");
 }
 
 // Send a reply email using Microsoft Graph's reply endpoint for proper threading
@@ -533,11 +547,17 @@ const handler = async (req: Request): Promise<Response> => {
     if (isReply && resolvedParentMessageId) {
       // Try to find the original message by internet message ID
       console.log(`Looking for original message with internet message ID: ${resolvedParentMessageId}`);
-      
+
       try {
-        // Search for the message in the user's mailbox using the internet message ID
-        const searchUrl = `https://graph.microsoft.com/v1.0/users/${from}/messages?$filter=internetMessageId eq '${encodeURIComponent(resolvedParentMessageId)}'&$select=id,internetMessageId`;
-        
+        // Search for the message in the user's mailbox using the internetMessageId.
+        // IMPORTANT: don't encode the ID inside the OData filter; encode the query string instead.
+        const safeInternetMessageId = resolvedParentMessageId.replace(/'/g, "''");
+        const qs = new URLSearchParams({
+          "$filter": `internetMessageId eq '${safeInternetMessageId}'`,
+          "$select": "id,internetMessageId",
+        });
+        const searchUrl = `https://graph.microsoft.com/v1.0/users/${from}/messages?${qs.toString()}`;
+
         const searchResponse = await fetch(searchUrl, {
           headers: { Authorization: `Bearer ${accessToken}` },
         });
@@ -559,38 +579,76 @@ const handler = async (req: Request): Promise<Response> => {
     }
 
     // Send email - use reply endpoint if we have the Graph message ID, otherwise send as new
+    const effectiveSubject = isReply
+      ? subject.toLowerCase().startsWith("re:")
+        ? subject
+        : `Re: ${subject}`
+      : subject;
+
     if (isReply && graphMessageId) {
       console.log("Using Graph Reply API for proper threading");
       try {
         await sendReplyEmail(
           accessToken,
-          { to, subject, body, toName, from, attachments, isReply },
+          {
+            to,
+            subject: effectiveSubject,
+            body,
+            toName,
+            from,
+            attachments,
+            isReply,
+            parentMessageId: resolvedParentMessageId,
+          },
           emailRecord.id,
           graphMessageId
         );
       } catch (replyError: any) {
-        // Check if this is a permission error (403)
+        // If the Azure app doesn't have Mail.ReadWrite, Graph will deny createReply.
+        // Fallback: sendMail with In-Reply-To/References headers to preserve threading.
         if (replyError.message?.includes("403") || replyError.message?.includes("AccessDenied")) {
-          console.warn("Reply API failed due to permissions. The Azure app may need Mail.ReadWrite permission.");
-          console.log("Falling back to sendMail endpoint...");
-          
-          // Fall back to sending as a new email with "Re:" prefix if not already present
-          const replySubject = subject.toLowerCase().startsWith("re:") ? subject : `Re: ${subject}`;
+          console.warn(
+            "Reply API failed due to permissions. Falling back to sendMail with threading headers (requires parent Message-ID)."
+          );
+
           await sendNewEmail(
-            accessToken, 
-            { to, subject: replySubject, body, toName, from, attachments, isReply }, 
+            accessToken,
+            {
+              to,
+              subject: effectiveSubject,
+              body,
+              toName,
+              from,
+              attachments,
+              isReply,
+              parentMessageId: resolvedParentMessageId,
+            },
             emailRecord.id
           );
         } else {
-          // Re-throw other errors
           throw replyError;
         }
       }
     } else {
       if (isReply) {
-        console.log("Could not find original message for reply, sending as new email");
+        console.log(
+          "Could not use Graph Reply API (missing Graph message id). Sending via sendMail with threading headers."
+        );
       }
-      await sendNewEmail(accessToken, { to, subject, body, toName, from, attachments, isReply }, emailRecord.id);
+      await sendNewEmail(
+        accessToken,
+        {
+          to,
+          subject: effectiveSubject,
+          body,
+          toName,
+          from,
+          attachments,
+          isReply,
+          parentMessageId: resolvedParentMessageId,
+        },
+        emailRecord.id
+      );
     }
 
     // Fetch the sent message to get its Message-ID for reply tracking
