@@ -1,29 +1,35 @@
 
 
-## Fix Task Column to Actually Respect 70% Width
+## Fix Table Layout and Hide Sort Icons
 
-The Task column header is already set to `70%` in the code, but the browser is ignoring it because the HTML table uses `auto` layout by default. The browser recalculates column widths based on content, overriding the specified percentages.
+### Changes to `src/components/DealExpandedPanel.tsx`
 
-### Root Cause
-The `<Table>` component doesn't have `table-layout: fixed`, so percentage widths are treated as suggestions rather than enforced values.
+**1. Add `table-fixed w-full` to both tables**
 
-### Fix
-**File: `src/components/DealExpandedPanel.tsx`** (line ~785)
+- History table (line ~660): Change `<Table>` to `<Table className="table-fixed w-full">`
+- Action Items table (line ~785): Change `<Table>` to `<Table className="table-fixed w-full">`
 
-Add `table-layout: fixed` and `width: 100%` to the Action Items `<Table>` element:
+This forces the browser to strictly respect the percentage widths (70% for Task/Changes, etc.).
 
+**2. Remove sort icons from both sections**
+
+Remove the `{getHistorySortIcon('...')}` calls from all History table headers (lines 666, 671, 676, 681) and `{getActionItemSortIcon('...')}` calls from all Action Items table headers (lines 791, 796, 801, 806, 811).
+
+The column header buttons remain clickable for sorting -- only the arrow icons are removed.
+
+**Before (example):**
 ```tsx
-<Table className="table-fixed w-full">
+<button className="flex items-center gap-1" onClick={() => handleHistorySort('changes')}>
+  Changes {getHistorySortIcon('changes')}
+</button>
 ```
 
-This single change forces the browser to strictly respect the percentage widths already defined:
-- `#`: 3%
-- **Task**: 70%  
-- **Assigned To**: 8%
-- **Due**: 8%
-- **Status**: 4%
-- **Priority**: 4%
-- **Actions**: 3%
+**After:**
+```tsx
+<button className="flex items-center gap-1" onClick={() => handleHistorySort('changes')}>
+  Changes
+</button>
+```
 
-No other changes needed -- the percentages are already correctly set.
+This applies to all sortable column headers in both the History and Action Items tables (9 headers total).
 
