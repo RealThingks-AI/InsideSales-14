@@ -657,28 +657,28 @@ const parseChangeSummary = (action: string, details: Record<string, unknown> | n
                          <span className="text-xs">{historyTypeFilter !== 'All' ? 'No matching logs' : 'No history yet'}</span>
                        </div>
                      ) : (
-                        <Table>
+                        <Table className="table-fixed w-full">
                           <TableHeader className="sticky top-0 z-10 bg-card">
                             <TableRow className="text-[11px] bg-muted/50">
                               <TableHead className="h-7 px-1 text-[11px] font-bold text-center" style={{ width: '3%' }}>#</TableHead>
                               <TableHead className="h-7 px-2 text-[11px] font-bold" style={{ width: '70%' }}>
                                 <button className="flex items-center gap-1" onClick={() => handleHistorySort('changes')}>
-                                  Changes {getHistorySortIcon('changes')}
+                                  Changes
                                 </button>
                               </TableHead>
                               <TableHead className="h-7 px-2 text-[11px] font-bold" style={{ width: '9%' }}>
                                 <button className="flex items-center gap-1" onClick={() => handleHistorySort('user_id')}>
-                                  By {getHistorySortIcon('user_id')}
+                                  By
                                 </button>
                               </TableHead>
                               <TableHead className="h-7 px-2 text-[11px] font-bold" style={{ width: '7%' }}>
                                 <button className="flex items-center gap-1" onClick={() => handleHistorySort('action')}>
-                                  Type {getHistorySortIcon('action')}
+                                  Type
                                 </button>
                               </TableHead>
                               <TableHead className="h-7 px-2 text-[11px] font-bold" style={{ width: '8%' }}>
                                 <button className="flex items-center gap-1" onClick={() => handleHistorySort('created_at')}>
-                                  Time {getHistorySortIcon('created_at')}
+                                  Time
                                 </button>
                               </TableHead>
                               <TableHead className="h-7 px-1" style={{ width: '3%' }}></TableHead>
@@ -782,33 +782,33 @@ const parseChangeSummary = (action: string, details: Record<string, unknown> | n
                         </Button>
                       </div>
                     ) : (
-                       <Table>
+                       <Table className="table-fixed w-full">
                          <TableHeader className="sticky top-0 z-10 bg-card">
                            <TableRow className="text-[11px] bg-muted/50">
                               <TableHead className="h-7 px-1 text-[11px] font-bold text-center" style={{ width: '3%' }}>#</TableHead>
                               <TableHead className="h-7 px-2 text-[11px] font-bold" style={{ width: '70%' }}>
                                  <button className="flex items-center gap-1" onClick={() => handleActionItemSort('title')}>
-                                   Task {getActionItemSortIcon('title')}
+                                   Task
                                  </button>
                                </TableHead>
                                <TableHead className="h-7 px-2 text-[11px] font-bold" style={{ width: '8%' }}>
                                  <button className="flex items-center gap-1" onClick={() => handleActionItemSort('assigned_to')}>
-                                   Assigned To {getActionItemSortIcon('assigned_to')}
+                                   Assigned To
                                  </button>
                                </TableHead>
                                <TableHead className="h-7 px-2 text-[11px] font-bold" style={{ width: '8%' }}>
                                  <button className="flex items-center gap-1" onClick={() => handleActionItemSort('due_date')}>
-                                   Due {getActionItemSortIcon('due_date')}
+                                   Due
                                  </button>
                                </TableHead>
                                <TableHead className="h-7 px-1 text-[11px] font-bold text-center" style={{ width: '4%' }}>
                                  <button className="flex items-center gap-1 mx-auto" onClick={() => handleActionItemSort('status')}>
-                                   Status {getActionItemSortIcon('status')}
+                                   Status
                                  </button>
                                </TableHead>
                                <TableHead className="h-7 px-1 text-[11px] font-bold text-center" style={{ width: '4%' }}>
                                  <button className="flex items-center gap-1 mx-auto" onClick={() => handleActionItemSort('priority')}>
-                                   Priority {getActionItemSortIcon('priority')}
+                                   Priority
                                  </button>
                                </TableHead>
                                <TableHead className="h-7 px-1" style={{ width: '3%' }}></TableHead>
