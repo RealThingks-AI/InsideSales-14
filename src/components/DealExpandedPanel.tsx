@@ -858,7 +858,7 @@ const parseChangeSummary = (action: string, details: Record<string, unknown> | n
                               </TableCell>
 
                               {/* Status - dot only */}
-                              <TableCell onClick={e => e.stopPropagation()} className="py-1.5 px-1 text-center" style={{ width: '6.67%', maxWidth: '6.67%' }}>
+                              <TableCell onClick={e => e.stopPropagation()} className="py-1.5 px-1 text-center">
                                 <TooltipProvider delayDuration={200}>
                                   <Tooltip>
                                     <TooltipTrigger asChild>
@@ -882,7 +882,7 @@ const parseChangeSummary = (action: string, details: Record<string, unknown> | n
                               </TableCell>
 
                               {/* Priority - dot only */}
-                              <TableCell onClick={e => e.stopPropagation()} className="py-1.5 px-1 text-center" style={{ width: '6.67%', maxWidth: '6.67%' }}>
+                              <TableCell onClick={e => e.stopPropagation()} className="py-1.5 px-1 text-center">
                                 <TooltipProvider delayDuration={200}>
                                   <Tooltip>
                                     <TooltipTrigger asChild>
