@@ -35,6 +35,7 @@ import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Command, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -47,7 +48,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { format } from "date-fns";
 import { useUserDisplayNames } from "@/hooks/useUserDisplayNames";
 import { useAuth } from "@/hooks/useAuth";
-import { ContactSearchableDropdown, Contact } from "@/components/ContactSearchableDropdown";
+import { Contact } from "@/components/ContactSearchableDropdown";
 import { Users } from "lucide-react";
 
 interface DealExpandedPanelProps {
@@ -195,12 +196,132 @@ const STAKEHOLDER_ROLES = [
   { role: "objector", label: "Objector" },
 ] as const;
 
-// Stakeholders Section Component
+// ── Inline add-dropdown for a single role ───────────────────────────────────
+interface StakeholderAddDropdownProps {
+  contacts: Contact[];
+  excludeIds: string[];
+  onAdd: (contact: Contact) => void;
+  rowRef: React.RefObject<HTMLDivElement>;
+}
+
+const normalize = (s: string) =>
+  s.toLowerCase().replace(/[-_.,()]/g, " ").replace(/\s+/g, " ").trim();
+
+const StakeholderAddDropdown = ({ contacts, excludeIds, onAdd, rowRef }: StakeholderAddDropdownProps) => {
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState("");
+  const [dropdownWidth, setDropdownWidth] = useState(220);
+
+  // Measure the row container to derive 40% width for the popover
+  const handleOpenChange = (next: boolean) => {
+    if (next && rowRef.current) {
+      setDropdownWidth(Math.round(rowRef.current.offsetWidth * 0.40));
+    }
+    setOpen(next);
+    if (!next) setSearch("");
+  };
+
+  const filtered = useMemo(() => {
+    const available = contacts.filter(c => !excludeIds.includes(c.id));
+    if (!search) return available.slice(0, 80);
+    const words = normalize(search).split(" ").filter(Boolean);
+    return available
+      .filter(c => {
+        const combined = normalize(`${c.contact_name || ""} ${c.company_name || ""} ${c.position || ""}`);
+        return words.every(w => combined.includes(w));
+      })
+      .slice(0, 80);
+  }, [contacts, excludeIds, search]);
+
+
+  return (
+    <Popover open={open} onOpenChange={handleOpenChange}>
+      <PopoverTrigger asChild>
+        <button
+          className="flex items-center justify-center w-5 h-5 rounded hover:bg-accent text-muted-foreground hover:text-foreground transition-colors shrink-0"
+          title="Add contact"
+        >
+          <Plus className="h-3 w-3" />
+        </button>
+      </PopoverTrigger>
+      <PopoverContent
+        className="p-0 z-[200]"
+        style={{ width: `${dropdownWidth}px` }}
+        align="start"
+        side="bottom"
+        avoidCollisions={false}
+        onWheel={e => e.stopPropagation()}
+      >
+        <Command shouldFilter={false}>
+          <CommandInput
+            placeholder="Search contacts…"
+            value={search}
+            onValueChange={setSearch}
+            className="h-8 text-xs"
+          />
+          <CommandList
+            className="max-h-[180px] overflow-y-auto"
+            onWheel={e => { e.stopPropagation(); (e.currentTarget as HTMLElement).scrollTop += e.deltaY; }}
+          >
+            {filtered.length === 0 ? (
+              <div className="py-4 text-center text-xs text-muted-foreground">No contacts found.</div>
+            ) : (
+              <CommandGroup>
+                {filtered.map(c => (
+                  <CommandItem
+                    key={c.id}
+                    value={c.contact_name}
+                    onSelect={() => { onAdd(c); setOpen(false); setSearch(""); }}
+                    className="cursor-pointer py-1 px-2"
+                  >
+                    <div className="flex flex-col min-w-0">
+                      <span className="text-xs font-medium truncate">{c.contact_name}</span>
+                      {(c.company_name || c.position) && (
+                        <span className="text-[10px] text-muted-foreground truncate">
+                          {[c.company_name, c.position].filter(Boolean).join(" • ")}
+                        </span>
+                      )}
+                    </div>
+                  </CommandItem>
+                ))}
+              </CommandGroup>
+            )}
+          </CommandList>
+        </Command>
+      </PopoverContent>
+    </Popover>
+  );
+};
+
+// ── Stakeholders Section Component ──────────────────────────────────────────
 const StakeholdersSection = ({ deal, queryClient }: { deal: Deal; queryClient: ReturnType<typeof useQueryClient> }) => {
   const { user } = useAuth();
-  const [contactNames, setContactNames] = useState<Record<string, string>>({});
-  const [editingNote, setEditingNote] = useState<string | null>(null); // stakeholder id
+  const rowRef = useRef<HTMLDivElement>(null);
+  const [editingNote, setEditingNote] = useState<string | null>(null);
   const [noteText, setNoteText] = useState("");
+
+  // Single contacts fetch shared across all 4 roles
+  const [allContacts, setAllContacts] = useState<Contact[]>([]);
+  useEffect(() => {
+    const fetchContacts = async () => {
+      const all: Contact[] = [];
+      let from = 0;
+      const BATCH = 1000;
+      while (true) {
+        const { data, error } = await supabase
+          .from("contacts")
+          .select("id, contact_name, company_name, position, email, phone_no, region, contact_owner, contact_source, industry, linkedin, website")
+          .order("contact_name", { ascending: true })
+          .range(from, from + BATCH - 1);
+        if (error || !data || data.length === 0) break;
+        all.push(...data);
+        if (data.length < BATCH) break;
+        from += BATCH;
+      }
+      setAllContacts(all);
+    };
+    fetchContacts();
+  }, []);
 
   // Fetch stakeholders from junction table
   const { data: stakeholders = [] } = useQuery({
@@ -216,20 +337,12 @@ const StakeholdersSection = ({ deal, queryClient }: { deal: Deal; queryClient: R
     enabled: !!deal.id,
   });
 
-  // Fetch contact names for all stakeholder contact IDs
-  useEffect(() => {
-    const ids = stakeholders.map(s => s.contact_id).filter(Boolean);
-    if (ids.length === 0) return;
-    const fetchNames = async () => {
-      const { data } = await supabase.from("contacts").select("id, contact_name").in("id", ids);
-      if (data) {
-        const names: Record<string, string> = {};
-        data.forEach(c => { names[c.id] = c.contact_name; });
-        setContactNames(names);
-      }
-    };
-    fetchNames();
-  }, [stakeholders]);
+  // Build contact name map from stakeholder IDs + already-loaded contacts
+  const contactNames = useMemo(() => {
+    const map: Record<string, string> = {};
+    allContacts.forEach(c => { map[c.id] = c.contact_name; });
+    return map;
+  }, [allContacts]);
 
   const handleAddContact = async (role: string, contact: Contact) => {
     const { error } = await supabase.from("deal_stakeholders").insert({
@@ -239,7 +352,6 @@ const StakeholdersSection = ({ deal, queryClient }: { deal: Deal; queryClient: R
       created_by: user?.id,
     });
     if (error) { console.error("Error adding stakeholder:", error); return; }
-    setContactNames(prev => ({ ...prev, [contact.id]: contact.contact_name }));
     queryClient.invalidateQueries({ queryKey: ["deal-stakeholders", deal.id] });
   };
 
@@ -255,50 +367,97 @@ const StakeholdersSection = ({ deal, queryClient }: { deal: Deal; queryClient: R
   };
 
   return (
-    <div className="px-2 pt-2 pb-1.5">
+    <div className="px-2 pt-2 pb-1.5" ref={rowRef}>
       <div className="border-t border-border pt-2.5">
-        <div className="grid grid-cols-2 gap-x-6 gap-y-2">
+        <div className="grid grid-cols-2 gap-x-4 gap-y-2">
           {STAKEHOLDER_ROLES.map(({ role, label }) => {
             const roleStakeholders = stakeholders.filter(s => s.role === role);
+            const excludeIds = roleStakeholders.map(s => s.contact_id);
+
             return (
-              <div key={role} className="flex items-start gap-1">
-                <span className="text-[10px] font-medium text-muted-foreground w-[85px] shrink-0 pt-1">{label} :</span>
-                <div className="flex-1 min-w-0 flex flex-wrap items-center gap-1">
-                  {roleStakeholders.map((sh) => (
-                    <div key={sh.id} className="inline-flex items-center gap-0.5 bg-muted rounded px-1.5 py-0.5 text-[10px] font-medium max-w-full">
-                      <span className="truncate">{contactNames[sh.contact_id] || "..."}</span>
-                      <Popover open={editingNote === sh.id} onOpenChange={(open) => {
-                        if (open) { setEditingNote(sh.id); setNoteText(sh.note || ""); }
-                        else { handleSaveNote(sh.id, noteText); }
-                      }}>
+              <div key={role} className="flex items-start">
+                {/* 14% — Label */}
+                <span
+                  className="text-[10px] font-medium text-muted-foreground shrink-0 pt-0.5 leading-4"
+                  style={{ width: "14%" }}
+                >
+                  {label} :
+                </span>
+
+                {/* 30% — Contact names stacked vertically */}
+                <div className="flex flex-col gap-0.5 min-w-0" style={{ width: "30%" }}>
+                  {roleStakeholders.map(sh => (
+                    <div
+                      key={sh.id}
+                      className="group/row flex items-center gap-0.5 min-w-0 h-4"
+                    >
+                      <span className="truncate text-[10px] font-medium leading-4 flex-1 min-w-0">
+                        {contactNames[sh.contact_id] || "…"}
+                      </span>
+                      {/* Hover-only X remove */}
+                      <button
+                        className="opacity-0 group-hover/row:opacity-60 hover:!opacity-100 transition-opacity shrink-0"
+                        onClick={() => handleRemoveContact(sh.id)}
+                        title="Remove"
+                      >
+                        <X className="h-2.5 w-2.5" />
+                      </button>
+                    </div>
+                  ))}
+                  {/* Empty row placeholder when no contacts */}
+                  {roleStakeholders.length === 0 && (
+                    <div className="h-4" />
+                  )}
+                </div>
+
+                {/* 3% — Info buttons stacked vertically (one per contact) */}
+                <div className="flex flex-col gap-0.5 items-center" style={{ width: "3%" }}>
+                  {roleStakeholders.map(sh => (
+                    <div key={sh.id} className="h-4 flex items-center justify-center">
+                      <Popover
+                        open={editingNote === sh.id}
+                        onOpenChange={(open) => {
+                          if (open) { setEditingNote(sh.id); setNoteText(sh.note || ""); }
+                          else { handleSaveNote(sh.id, noteText); }
+                        }}
+                      >
                         <PopoverTrigger asChild>
-                          <button className="shrink-0 p-0.5 rounded hover:bg-accent" title="Add note">
-                            <Info className={cn("h-2.5 w-2.5", sh.note ? "text-primary" : "opacity-50 hover:opacity-100")} />
+                          <button
+                            className="flex items-center justify-center w-4 h-4 rounded hover:bg-accent"
+                            title={sh.note ? sh.note : "Add note"}
+                          >
+                            <Info className={cn("h-2.5 w-2.5 shrink-0", sh.note ? "text-primary" : "text-muted-foreground opacity-50 hover:opacity-100")} />
                           </button>
                         </PopoverTrigger>
-                        <PopoverContent className="w-60 p-2" side="top" align="start">
+                        <PopoverContent className="w-60 p-2 z-[200]" side="top" align="start">
                           <Textarea
                             value={noteText}
                             onChange={(e) => setNoteText(e.target.value)}
-                            placeholder="Add notes about this contact..."
+                            placeholder="Add notes about this contact…"
                             className="text-xs min-h-[60px] resize-none"
                             autoFocus
                           />
-                          <Button size="sm" className="mt-1.5 h-6 text-[10px] w-full" onClick={() => handleSaveNote(sh.id, noteText)}>
+                          <Button
+                            size="sm"
+                            className="mt-1.5 h-6 text-[10px] w-full"
+                            onClick={() => handleSaveNote(sh.id, noteText)}
+                          >
                             Save
                           </Button>
                         </PopoverContent>
                       </Popover>
-                      <X className="h-2.5 w-2.5 cursor-pointer opacity-60 hover:opacity-100 shrink-0" onClick={() => handleRemoveContact(sh.id)} />
                     </div>
                   ))}
-                  <ContactSearchableDropdown
-                    value=""
-                    selectedContactId={undefined}
-                    onValueChange={() => {}}
-                    onContactSelect={(contact: Contact) => handleAddContact(role, contact)}
-                    placeholder="+ Add"
-                    className="h-6 text-[10px] border-dashed flex-1 min-w-[60px] max-w-[120px]"
+                  {roleStakeholders.length === 0 && <div className="h-4" />}
+                </div>
+
+                {/* 3% — Single + Add button (always at top) */}
+                <div className="flex items-start justify-center pt-0.5" style={{ width: "3%" }}>
+                  <StakeholderAddDropdown
+                    contacts={allContacts}
+                    excludeIds={excludeIds}
+                    onAdd={(contact) => handleAddContact(role, contact)}
+                    rowRef={rowRef}
                   />
                 </div>
               </div>
