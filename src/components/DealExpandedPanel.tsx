@@ -201,21 +201,21 @@ interface StakeholderAddDropdownProps {
   contacts: Contact[];
   excludeIds: string[];
   onAdd: (contact: Contact) => void;
-  rowRef: React.RefObject<HTMLDivElement>;
+  cellRef: React.RefObject<HTMLDivElement>;
 }
 
 const normalize = (s: string) =>
   s.toLowerCase().replace(/[-_.,()]/g, " ").replace(/\s+/g, " ").trim();
 
-const StakeholderAddDropdown = ({ contacts, excludeIds, onAdd, rowRef }: StakeholderAddDropdownProps) => {
+const StakeholderAddDropdown = ({ contacts, excludeIds, onAdd, cellRef }: StakeholderAddDropdownProps) => {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
   const [dropdownWidth, setDropdownWidth] = useState(220);
 
-  // Measure the row container to derive 40% width for the popover
+  // Measure the cell container (50% column) to derive 40% width for the popover
   const handleOpenChange = (next: boolean) => {
-    if (next && rowRef.current) {
-      setDropdownWidth(Math.round(rowRef.current.offsetWidth * 0.40));
+    if (next && cellRef.current) {
+      setDropdownWidth(Math.round(cellRef.current.offsetWidth * 0.40));
     }
     setOpen(next);
     if (!next) setSearch("");
@@ -296,7 +296,8 @@ const StakeholderAddDropdown = ({ contacts, excludeIds, onAdd, rowRef }: Stakeho
 // ── Stakeholders Section Component ──────────────────────────────────────────
 const StakeholdersSection = ({ deal, queryClient }: { deal: Deal; queryClient: ReturnType<typeof useQueryClient> }) => {
   const { user } = useAuth();
-  const rowRef = useRef<HTMLDivElement>(null);
+  // One ref per role cell so dropdown width is based on the 50%-column, not the full container
+  const cellRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const [editingNote, setEditingNote] = useState<string | null>(null);
   const [noteText, setNoteText] = useState("");
 
@@ -337,7 +338,7 @@ const StakeholdersSection = ({ deal, queryClient }: { deal: Deal; queryClient: R
     enabled: !!deal.id,
   });
 
-  // Build contact name map from stakeholder IDs + already-loaded contacts
+  // Build contact name map from already-loaded contacts
   const contactNames = useMemo(() => {
     const map: Record<string, string> = {};
     allContacts.forEach(c => { map[c.id] = c.contact_name; });
@@ -367,25 +368,40 @@ const StakeholdersSection = ({ deal, queryClient }: { deal: Deal; queryClient: R
   };
 
   return (
-    <div className="px-2 pt-2 pb-1.5" ref={rowRef}>
+    <div className="px-2 pt-2 pb-1.5">
       <div className="border-t border-border pt-2.5">
-        <div className="grid grid-cols-2 gap-x-4 gap-y-2">
+        {/*
+          Layout per cell (each cell = 50% of total):
+          |── 18% label ──|── 34% names ──|── 5% info ──|── 5% add ──|
+          Remaining 38% is left as flex-1 spacer so + button stays at far right of cell.
+        */}
+        <div className="grid grid-cols-2 gap-x-4 gap-y-1">
           {STAKEHOLDER_ROLES.map(({ role, label }) => {
             const roleStakeholders = stakeholders.filter(s => s.role === role);
             const excludeIds = roleStakeholders.map(s => s.contact_id);
 
+            // Create a stable ref getter for each role
+            const getCellRef = (el: HTMLDivElement | null) => {
+              cellRefs.current[role] = el;
+            };
+            const cellRef = { get current() { return cellRefs.current[role] ?? null; } } as React.RefObject<HTMLDivElement>;
+
             return (
-              <div key={role} className="flex items-start">
-                {/* 14% — Label */}
+              <div
+                key={role}
+                ref={getCellRef}
+                className="flex items-start min-w-0"
+              >
+                {/* Label — fixed width, no wrap */}
                 <span
-                  className="text-[10px] font-medium text-muted-foreground shrink-0 pt-0.5 leading-4"
-                  style={{ width: "14%" }}
+                  className="text-[10px] font-medium text-muted-foreground shrink-0 pt-0.5 leading-4 whitespace-nowrap"
+                  style={{ width: "38%" }}
                 >
                   {label} :
                 </span>
 
-                {/* 30% — Contact names stacked vertically */}
-                <div className="flex flex-col gap-0.5 min-w-0" style={{ width: "30%" }}>
+                {/* Contact names — stacked vertically, truncated */}
+                <div className="flex flex-col gap-0.5 min-w-0 flex-1">
                   {roleStakeholders.map(sh => (
                     <div
                       key={sh.id}
@@ -404,14 +420,11 @@ const StakeholdersSection = ({ deal, queryClient }: { deal: Deal; queryClient: R
                       </button>
                     </div>
                   ))}
-                  {/* Empty row placeholder when no contacts */}
-                  {roleStakeholders.length === 0 && (
-                    <div className="h-4" />
-                  )}
+                  {roleStakeholders.length === 0 && <div className="h-4" />}
                 </div>
 
-                {/* 3% — Info buttons stacked vertically (one per contact) */}
-                <div className="flex flex-col gap-0.5 items-center" style={{ width: "3%" }}>
+                {/* Info buttons — one per contact, stacked */}
+                <div className="flex flex-col gap-0.5 items-center shrink-0" style={{ width: "18px" }}>
                   {roleStakeholders.map(sh => (
                     <div key={sh.id} className="h-4 flex items-center justify-center">
                       <Popover
@@ -451,13 +464,13 @@ const StakeholdersSection = ({ deal, queryClient }: { deal: Deal; queryClient: R
                   {roleStakeholders.length === 0 && <div className="h-4" />}
                 </div>
 
-                {/* 3% — Single + Add button (always at top) */}
-                <div className="flex items-start justify-center pt-0.5" style={{ width: "3%" }}>
+                {/* Single + Add button — always pinned at top-right of cell */}
+                <div className="flex items-start justify-center pt-0.5 shrink-0" style={{ width: "18px" }}>
                   <StakeholderAddDropdown
                     contacts={allContacts}
                     excludeIds={excludeIds}
                     onAdd={(contact) => handleAddContact(role, contact)}
-                    rowRef={rowRef}
+                    cellRef={cellRef}
                   />
                 </div>
               </div>
