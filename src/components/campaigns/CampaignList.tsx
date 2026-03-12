@@ -1,9 +1,12 @@
+import { useState } from 'react';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 import { MoreHorizontal, Pencil, Trash2 } from 'lucide-react';
 import { Skeleton } from '@/components/ui/skeleton';
+import { useCampaignAggregates } from '@/hooks/useCampaigns';
 import type { Campaign } from '@/types/campaign';
 import { format } from 'date-fns';
 
@@ -25,6 +28,10 @@ const statusColors: Record<string, string> = {
 };
 
 export function CampaignList({ campaigns, loading, onSelect, onEdit, onDelete, selectedId }: CampaignListProps) {
+  const aggregatesQuery = useCampaignAggregates();
+  const aggregates = aggregatesQuery.data || {};
+  const [deleteId, setDeleteId] = useState<string | null>(null);
+
   if (loading) {
     return (
       <div className="p-4 space-y-3">
@@ -45,55 +52,79 @@ export function CampaignList({ campaigns, loading, onSelect, onEdit, onDelete, s
   }
 
   return (
-    <Table>
-      <TableHeader>
-        <TableRow>
-          <TableHead>Campaign Name</TableHead>
-          <TableHead>Type</TableHead>
-          <TableHead>Status</TableHead>
-          <TableHead>Start Date</TableHead>
-          <TableHead>End Date</TableHead>
-          <TableHead>Region</TableHead>
-          <TableHead className="w-10"></TableHead>
-        </TableRow>
-      </TableHeader>
-      <TableBody>
-        {campaigns.map(c => (
-          <TableRow
-            key={c.id}
-            className={`cursor-pointer ${selectedId === c.id ? 'bg-accent' : ''}`}
-            onClick={() => onSelect(c)}
-          >
-            <TableCell className="font-medium">{c.campaign_name}</TableCell>
-            <TableCell className="text-sm">{c.campaign_type || '—'}</TableCell>
-            <TableCell>
-              <Badge variant="outline" className={statusColors[c.status] || ''}>
-                {c.status}
-              </Badge>
-            </TableCell>
-            <TableCell className="text-sm">{c.start_date ? format(new Date(c.start_date), 'dd MMM yyyy') : '—'}</TableCell>
-            <TableCell className="text-sm">{c.end_date ? format(new Date(c.end_date), 'dd MMM yyyy') : '—'}</TableCell>
-            <TableCell className="text-sm">{c.region || '—'}</TableCell>
-            <TableCell>
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild onClick={e => e.stopPropagation()}>
-                  <Button variant="ghost" size="icon" className="h-8 w-8">
-                    <MoreHorizontal className="h-4 w-4" />
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end">
-                  <DropdownMenuItem onClick={e => { e.stopPropagation(); onEdit(c); }}>
-                    <Pencil className="h-4 w-4 mr-2" /> Edit
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onClick={e => { e.stopPropagation(); onDelete(c.id); }} className="text-destructive">
-                    <Trash2 className="h-4 w-4 mr-2" /> Delete
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
-            </TableCell>
+    <>
+      <Table>
+        <TableHeader>
+          <TableRow>
+            <TableHead>Campaign Name</TableHead>
+            <TableHead>Type</TableHead>
+            <TableHead>Status</TableHead>
+            <TableHead>Start Date</TableHead>
+            <TableHead>End Date</TableHead>
+            <TableHead>Region</TableHead>
+            <TableHead className="text-center">Accounts</TableHead>
+            <TableHead className="text-center">Contacts</TableHead>
+            <TableHead className="text-center">Deals</TableHead>
+            <TableHead className="w-10"></TableHead>
           </TableRow>
-        ))}
-      </TableBody>
-    </Table>
+        </TableHeader>
+        <TableBody>
+          {campaigns.map(c => {
+            const agg = aggregates[c.id];
+            return (
+              <TableRow
+                key={c.id}
+                className={`cursor-pointer ${selectedId === c.id ? 'bg-accent' : ''}`}
+                onClick={() => onSelect(c)}
+              >
+                <TableCell className="font-medium">{c.campaign_name}</TableCell>
+                <TableCell className="text-sm">{c.campaign_type || '—'}</TableCell>
+                <TableCell>
+                  <Badge variant="outline" className={statusColors[c.status] || ''}>
+                    {c.status}
+                  </Badge>
+                </TableCell>
+                <TableCell className="text-sm">{c.start_date ? format(new Date(c.start_date), 'dd MMM yyyy') : '—'}</TableCell>
+                <TableCell className="text-sm">{c.end_date ? format(new Date(c.end_date), 'dd MMM yyyy') : '—'}</TableCell>
+                <TableCell className="text-sm">{c.region || '—'}</TableCell>
+                <TableCell className="text-center text-sm">{agg?.accounts ?? 0}</TableCell>
+                <TableCell className="text-center text-sm">{agg?.contacts ?? 0}</TableCell>
+                <TableCell className="text-center text-sm">{agg?.deals ?? 0}</TableCell>
+                <TableCell>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild onClick={e => e.stopPropagation()}>
+                      <Button variant="ghost" size="icon" className="h-8 w-8">
+                        <MoreHorizontal className="h-4 w-4" />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
+                      <DropdownMenuItem onClick={e => { e.stopPropagation(); onEdit(c); }}>
+                        <Pencil className="h-4 w-4 mr-2" /> Edit
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onClick={e => { e.stopPropagation(); setDeleteId(c.id); }} className="text-destructive">
+                        <Trash2 className="h-4 w-4 mr-2" /> Delete
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                </TableCell>
+              </TableRow>
+            );
+          })}
+        </TableBody>
+      </Table>
+
+      <AlertDialog open={!!deleteId} onOpenChange={o => { if (!o) setDeleteId(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Campaign</AlertDialogTitle>
+            <AlertDialogDescription>Are you sure you want to delete this campaign? All associated accounts, contacts, communications, templates, scripts, and materials will also be deleted. This action cannot be undone.</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={() => { if (deleteId) { onDelete(deleteId); setDeleteId(null); } }}>Delete</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
   );
 }

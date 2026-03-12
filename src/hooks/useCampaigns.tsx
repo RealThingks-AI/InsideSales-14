@@ -293,3 +293,162 @@ export function useCampaignMaterials(campaignId: string | null) {
 
   return { query, uploadMaterial, deleteMaterial };
 }
+
+export function useCampaignEmailTemplates(campaignId: string | null) {
+  const { user } = useAuth();
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+
+  const query = useQuery({
+    queryKey: ['campaign_email_templates', campaignId],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('campaign_email_templates')
+        .select('*')
+        .eq('campaign_id', campaignId!)
+        .order('created_at', { ascending: false });
+      if (error) throw error;
+      return data as any[];
+    },
+    enabled: !!campaignId && !!user,
+  });
+
+  const createTemplate = useMutation({
+    mutationFn: async (template: Record<string, any>) => {
+      const { error } = await supabase.from('campaign_email_templates').insert({
+        ...template,
+        campaign_id: campaignId,
+        created_by: user!.id,
+      } as any);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['campaign_email_templates', campaignId] });
+      toast({ title: 'Email template created' });
+    },
+    onError: (err: any) => {
+      toast({ title: 'Error creating template', description: err.message, variant: 'destructive' });
+    },
+  });
+
+  const updateTemplate = useMutation({
+    mutationFn: async ({ id, ...updates }: Record<string, any> & { id: string }) => {
+      const { error } = await supabase.from('campaign_email_templates').update(updates as any).eq('id', id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['campaign_email_templates', campaignId] });
+      toast({ title: 'Template updated' });
+    },
+    onError: (err: any) => {
+      toast({ title: 'Error updating template', description: err.message, variant: 'destructive' });
+    },
+  });
+
+  const deleteTemplate = useMutation({
+    mutationFn: async (id: string) => {
+      const { error } = await supabase.from('campaign_email_templates').delete().eq('id', id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['campaign_email_templates', campaignId] });
+      toast({ title: 'Template deleted' });
+    },
+  });
+
+  return { query, createTemplate, updateTemplate, deleteTemplate };
+}
+
+export function useCampaignPhoneScripts(campaignId: string | null) {
+  const { user } = useAuth();
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+
+  const query = useQuery({
+    queryKey: ['campaign_phone_scripts', campaignId],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('campaign_phone_scripts')
+        .select('*')
+        .eq('campaign_id', campaignId!)
+        .order('created_at', { ascending: false });
+      if (error) throw error;
+      return data as any[];
+    },
+    enabled: !!campaignId && !!user,
+  });
+
+  const createScript = useMutation({
+    mutationFn: async (script: Record<string, any>) => {
+      const { error } = await supabase.from('campaign_phone_scripts').insert({
+        ...script,
+        campaign_id: campaignId,
+        created_by: user!.id,
+      } as any);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['campaign_phone_scripts', campaignId] });
+      toast({ title: 'Phone script created' });
+    },
+    onError: (err: any) => {
+      toast({ title: 'Error creating script', description: err.message, variant: 'destructive' });
+    },
+  });
+
+  const updateScript = useMutation({
+    mutationFn: async ({ id, ...updates }: Record<string, any> & { id: string }) => {
+      const { error } = await supabase.from('campaign_phone_scripts').update(updates as any).eq('id', id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['campaign_phone_scripts', campaignId] });
+      toast({ title: 'Script updated' });
+    },
+    onError: (err: any) => {
+      toast({ title: 'Error updating script', description: err.message, variant: 'destructive' });
+    },
+  });
+
+  const deleteScript = useMutation({
+    mutationFn: async (id: string) => {
+      const { error } = await supabase.from('campaign_phone_scripts').delete().eq('id', id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['campaign_phone_scripts', campaignId] });
+      toast({ title: 'Script deleted' });
+    },
+  });
+
+  return { query, createScript, updateScript, deleteScript };
+}
+
+export function useCampaignAggregates() {
+  const { user } = useAuth();
+
+  const query = useQuery({
+    queryKey: ['campaign_aggregates'],
+    queryFn: async () => {
+      const [accountsRes, contactsRes, dealsRes] = await Promise.all([
+        supabase.from('campaign_accounts').select('campaign_id'),
+        supabase.from('campaign_contacts').select('campaign_id'),
+        supabase.from('deals').select('campaign_id').not('campaign_id', 'is', null),
+      ]);
+
+      const counts: Record<string, { accounts: number; contacts: number; deals: number }> = {};
+      const ensure = (id: string) => {
+        if (!counts[id]) counts[id] = { accounts: 0, contacts: 0, deals: 0 };
+      };
+
+      (accountsRes.data || []).forEach((r: any) => { ensure(r.campaign_id); counts[r.campaign_id].accounts++; });
+      (contactsRes.data || []).forEach((r: any) => { ensure(r.campaign_id); counts[r.campaign_id].contacts++; });
+      (dealsRes.data || []).forEach((r: any) => { ensure(r.campaign_id); counts[r.campaign_id].deals++; });
+
+      return counts;
+    },
+    enabled: !!user,
+  });
+
+  return query;
+}
