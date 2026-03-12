@@ -6,6 +6,8 @@ import { Badge } from '@/components/ui/badge';
 import { CampaignAccountsTab } from './CampaignAccountsTab';
 import { CampaignContactsTab } from './CampaignContactsTab';
 import { CampaignOutreachTab } from './CampaignOutreachTab';
+import { CampaignEmailTemplatesTab } from './CampaignEmailTemplatesTab';
+import { CampaignPhoneScriptsTab } from './CampaignPhoneScriptsTab';
 import { CampaignMaterialsTab } from './CampaignMaterialsTab';
 import { CampaignAnalytics } from './CampaignAnalytics';
 import type { Campaign } from '@/types/campaign';
@@ -22,7 +24,6 @@ export function CampaignDetailPanel({ campaign, onClose, onEdit }: Props) {
 
   return (
     <div className="h-full flex flex-col bg-background">
-      {/* Header */}
       <div className="flex items-center justify-between px-4 py-3 border-b border-border shrink-0">
         <div className="flex items-center gap-2 min-w-0">
           <h2 className="font-semibold text-foreground truncate">{campaign.campaign_name}</h2>
@@ -38,13 +39,14 @@ export function CampaignDetailPanel({ campaign, onClose, onEdit }: Props) {
         </div>
       </div>
 
-      {/* Tabs */}
       <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 min-h-0 flex flex-col">
-        <TabsList className="px-4 pt-2 justify-start shrink-0">
+        <TabsList className="px-4 pt-2 justify-start shrink-0 flex-wrap h-auto gap-1">
           <TabsTrigger value="overview">Overview</TabsTrigger>
           <TabsTrigger value="accounts">Accounts</TabsTrigger>
           <TabsTrigger value="contacts">Contacts</TabsTrigger>
           <TabsTrigger value="outreach">Outreach</TabsTrigger>
+          <TabsTrigger value="templates">Templates</TabsTrigger>
+          <TabsTrigger value="scripts">Scripts</TabsTrigger>
           <TabsTrigger value="materials">Materials</TabsTrigger>
           <TabsTrigger value="analytics">Analytics</TabsTrigger>
         </TabsList>
@@ -101,6 +103,14 @@ export function CampaignDetailPanel({ campaign, onClose, onEdit }: Props) {
 
           <TabsContent value="outreach" className="mt-0">
             <CampaignOutreachTab campaignId={campaign.id} />
+          </TabsContent>
+
+          <TabsContent value="templates" className="mt-0">
+            <CampaignEmailTemplatesTab campaignId={campaign.id} />
+          </TabsContent>
+
+          <TabsContent value="scripts" className="mt-0">
+            <CampaignPhoneScriptsTab campaignId={campaign.id} />
           </TabsContent>
 
           <TabsContent value="materials" className="mt-0">

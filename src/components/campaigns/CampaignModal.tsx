@@ -8,6 +8,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { useCampaigns } from '@/hooks/useCampaigns';
 import { CAMPAIGN_STATUSES, CAMPAIGN_TYPES, AUDIENCE_SEGMENTS } from '@/types/campaign';
 import type { Campaign } from '@/types/campaign';
+import { supabase } from '@/integrations/supabase/client';
+import { useQuery } from '@tanstack/react-query';
 
 interface Props {
   open: boolean;
@@ -19,11 +21,23 @@ export function CampaignModal({ open, onOpenChange, campaign }: Props) {
   const { createCampaign, updateCampaign } = useCampaigns();
   const isEdit = !!campaign;
 
+  const profilesQuery = useQuery({
+    queryKey: ['profiles_for_owner'],
+    queryFn: async () => {
+      const { data, error } = await supabase.from('profiles').select('id, full_name, "Email ID"');
+      if (error) throw error;
+      return data || [];
+    },
+  });
+
+  const profiles = profilesQuery.data || [];
+
   const [form, setForm] = useState({
     campaign_name: '',
     description: '',
     campaign_type: 'Email',
     status: 'Draft',
+    owner: '',
     start_date: '',
     end_date: '',
     region: '',
@@ -39,6 +53,7 @@ export function CampaignModal({ open, onOpenChange, campaign }: Props) {
         description: campaign.description || '',
         campaign_type: campaign.campaign_type || 'Email',
         status: campaign.status,
+        owner: campaign.owner || '',
         start_date: campaign.start_date || '',
         end_date: campaign.end_date || '',
         region: campaign.region || '',
@@ -52,6 +67,7 @@ export function CampaignModal({ open, onOpenChange, campaign }: Props) {
         description: '',
         campaign_type: 'Email',
         status: 'Draft',
+        owner: '',
         start_date: '',
         end_date: '',
         region: '',
@@ -66,6 +82,7 @@ export function CampaignModal({ open, onOpenChange, campaign }: Props) {
     if (!form.campaign_name.trim()) return;
     const payload = {
       ...form,
+      owner: form.owner || null,
       start_date: form.start_date || null,
       end_date: form.end_date || null,
     };
@@ -109,6 +126,28 @@ export function CampaignModal({ open, onOpenChange, campaign }: Props) {
             </Select>
           </div>
           <div>
+            <Label>Owner</Label>
+            <Select value={form.owner} onValueChange={v => set('owner', v)}>
+              <SelectTrigger><SelectValue placeholder="Select owner" /></SelectTrigger>
+              <SelectContent>
+                {profiles.map((p: any) => (
+                  <SelectItem key={p.id} value={p.id}>
+                    {p.full_name || p['Email ID'] || p.id}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div>
+            <Label>Target Audience</Label>
+            <Select value={form.target_audience} onValueChange={v => set('target_audience', v)}>
+              <SelectTrigger><SelectValue placeholder="Select audience" /></SelectTrigger>
+              <SelectContent>
+                {AUDIENCE_SEGMENTS.map(a => <SelectItem key={a} value={a}>{a}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </div>
+          <div>
             <Label>Start Date</Label>
             <Input type="date" value={form.start_date} onChange={e => set('start_date', e.target.value)} />
           </div>
@@ -123,15 +162,6 @@ export function CampaignModal({ open, onOpenChange, campaign }: Props) {
           <div>
             <Label>Country</Label>
             <Input value={form.country} onChange={e => set('country', e.target.value)} />
-          </div>
-          <div>
-            <Label>Target Audience</Label>
-            <Select value={form.target_audience} onValueChange={v => set('target_audience', v)}>
-              <SelectTrigger><SelectValue placeholder="Select audience" /></SelectTrigger>
-              <SelectContent>
-                {AUDIENCE_SEGMENTS.map(a => <SelectItem key={a} value={a}>{a}</SelectItem>)}
-              </SelectContent>
-            </Select>
           </div>
           <div className="col-span-2">
             <Label>Description</Label>

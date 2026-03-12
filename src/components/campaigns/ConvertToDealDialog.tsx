@@ -42,7 +42,18 @@ export function ConvertToDealDialog({ open, onOpenChange, campaignId, campaignCo
       // Update campaign contact stage
       await supabase.from('campaign_contacts').update({ stage: 'Qualified' } as any).eq('id', campaignContact.id);
 
+      // Update associated campaign account status to "Deal Created"
+      if (campaignContact.account_id) {
+        await supabase
+          .from('campaign_accounts')
+          .update({ status: 'Deal Created' } as any)
+          .eq('campaign_id', campaignId)
+          .eq('account_id', campaignContact.account_id);
+      }
+
       queryClient.invalidateQueries({ queryKey: ['campaign_contacts', campaignId] });
+      queryClient.invalidateQueries({ queryKey: ['campaign_accounts', campaignId] });
+      queryClient.invalidateQueries({ queryKey: ['campaign_aggregates'] });
       queryClient.invalidateQueries({ queryKey: ['deals'] });
       toast({ title: 'Deal created', description: `"${name}" added to Lead stage` });
       onOpenChange(false);
