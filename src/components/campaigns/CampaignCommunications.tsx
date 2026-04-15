@@ -9,7 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Plus, Search, MessageSquare, AlertTriangle, ChevronDown, ChevronRight, Phone, ArrowUpDown, RefreshCw, Send, Mail, ListChecks, Reply } from "lucide-react";
+import { Plus, Search, MessageSquare, AlertTriangle, ChevronDown, ChevronRight, Phone, ArrowUpDown, RefreshCw, Send, Mail, ListChecks, Reply, Linkedin } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -19,19 +19,29 @@ import { format } from "date-fns";
 import { useUserDisplayNames } from "@/hooks/useUserDisplayNames";
 import { useCRUDAudit } from "@/hooks/useCRUDAudit";
 import { EmailComposeModal } from "./EmailComposeModal";
+import { stageRanks } from "./campaignUtils";
 
 interface Props {
   campaignId: string;
   isCampaignEnded: boolean;
 }
 
-import { stageRanks } from "./campaignUtils";
+type OutreachTab = "all" | "email" | "linkedin" | "call";
+
+interface ColumnDef {
+  key: string;
+  label: string;
+  sortable?: boolean;
+  render: (c: any) => React.ReactNode;
+  className?: string;
+}
 
 export function CampaignCommunications({ campaignId, isCampaignEnded }: Props) {
   const { user } = useAuth();
   const queryClient = useQueryClient();
   const { logCreate } = useCRUDAudit();
   const [logModalOpen, setLogModalOpen] = useState(false);
+  const [logDefaultChannel, setLogDefaultChannel] = useState<string>("Email");
   const [emailComposeOpen, setEmailComposeOpen] = useState(false);
   const [replyContext, setReplyContext] = useState<{ parent_id: string; thread_id: string | null; subject: string; contactId: string } | undefined>(undefined);
   const [taskModalOpen, setTaskModalOpen] = useState(false);
@@ -45,6 +55,7 @@ export function CampaignCommunications({ campaignId, isCampaignEnded }: Props) {
   const [sortAsc, setSortAsc] = useState(false);
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
   const [viewMode, setViewMode] = useState<"list" | "threads">("list");
+  const [outreachTab, setOutreachTab] = useState<OutreachTab>("all");
 
   const { data: communications = [], refetch } = useQuery({
     queryKey: ["campaign-communications", campaignId],
@@ -95,7 +106,35 @@ export function CampaignCommunications({ campaignId, isCampaignEnded }: Props) {
   const ownerIds = [...new Set(communications.map((c: any) => c.owner).filter(Boolean))] as string[];
   const { displayNames } = useUserDisplayNames(ownerIds);
 
-  // Group communications into threads by contact
+  // --- Channel-filtered data ---
+  const isCall = (type: string) => type === "Call" || type === "Phone";
+  const emailComms = useMemo(() => communications.filter((c: any) => c.communication_type === "Email"), [communications]);
+  const linkedinComms = useMemo(() => communications.filter((c: any) => c.communication_type === "LinkedIn"), [communications]);
+  const callComms = useMemo(() => communications.filter((c: any) => isCall(c.communication_type)), [communications]);
+
+  // --- Channel stats ---
+  const emailStats = useMemo(() => ({
+    sent: emailComms.filter((c: any) => c.email_status === "Sent" || c.email_status === "Delivered").length,
+    opened: emailComms.filter((c: any) => c.email_status === "Opened").length,
+    replied: emailComms.filter((c: any) => c.email_status === "Replied").length,
+    bounced: emailComms.filter((c: any) => c.email_status === "Bounced").length,
+  }), [emailComms]);
+
+  const linkedinStats = useMemo(() => ({
+    connectionSent: linkedinComms.filter((c: any) => c.linkedin_status === "Connection Sent").length,
+    connected: linkedinComms.filter((c: any) => c.linkedin_status === "Connected").length,
+    messageSent: linkedinComms.filter((c: any) => c.linkedin_status === "Message Sent" || c.linkedin_status === "InMail Sent").length,
+    responded: linkedinComms.filter((c: any) => c.linkedin_status === "Responded").length,
+  }), [linkedinComms]);
+
+  const callStats = useMemo(() => ({
+    interested: callComms.filter((c: any) => c.call_outcome === "Interested").length,
+    notInterested: callComms.filter((c: any) => c.call_outcome === "Not Interested").length,
+    callLater: callComms.filter((c: any) => c.call_outcome === "Call Later").length,
+    noAnswer: callComms.filter((c: any) => c.call_outcome === "No Answer" || c.call_outcome === "Voicemail").length,
+  }), [callComms]);
+
+  // --- Threads (for All tab only) ---
   const threads = useMemo(() => {
     const byContact: Record<string, any[]> = {};
     communications.forEach((c: any) => {
@@ -111,7 +150,7 @@ export function CampaignCommunications({ campaignId, isCampaignEnded }: Props) {
       lastActivity: msgs[0]?.communication_date,
       channelCounts: {
         Email: msgs.filter(m => m.communication_type === "Email").length,
-        Call: msgs.filter(m => m.communication_type === "Call" || m.communication_type === "Phone").length,
+        Call: msgs.filter(m => isCall(m.communication_type)).length,
         LinkedIn: msgs.filter(m => m.communication_type === "LinkedIn").length,
       },
     })).sort((a, b) => new Date(b.lastActivity || 0).getTime() - new Date(a.lastActivity || 0).getTime());
@@ -122,41 +161,36 @@ export function CampaignCommunications({ campaignId, isCampaignEnded }: Props) {
     email_status: "Sent", call_outcome: "", linkedin_status: "Connection Sent",
   });
 
+  // --- Handlers (unchanged logic) ---
   const handleLogCommunication = async () => {
     if (isCampaignEnded) {
       toast({ title: "Campaign ended", description: "No further outreach can be logged.", variant: "destructive" });
       return;
     }
-
     const contactRecord = campaignContacts.find((cc: any) => cc.contact_id === logForm.contact_id);
     const accountId = contactRecord?.account_id || null;
-
     const { data: inserted, error } = await supabase.from("campaign_communications").insert({
       campaign_id: campaignId, contact_id: logForm.contact_id || null,
       account_id: accountId, communication_type: logForm.communication_type,
       subject: logForm.subject || null, body: logForm.body || null,
       notes: logForm.notes || null,
       email_status: logForm.communication_type === "Email" ? logForm.email_status : null,
-      call_outcome: logForm.communication_type === "Call" ? logForm.call_outcome : null,
+      call_outcome: isCall(logForm.communication_type) ? logForm.call_outcome : null,
       linkedin_status: logForm.communication_type === "LinkedIn" ? logForm.linkedin_status : null,
       delivery_status: logForm.communication_type === "Email" ? "manual" : null,
       sent_via: "manual",
       owner: user!.id, created_by: user!.id,
       communication_date: new Date().toISOString(),
     }).select("id").single();
-
     if (error) { toast({ title: "Error", description: error.message, variant: "destructive" }); return; }
 
-    // Rank-based MAX stage logic
     if (logForm.contact_id) {
       const channelStageMap: Record<string, string> = { Email: "Email Sent", Call: "Phone Contacted", Phone: "Phone Contacted", LinkedIn: "LinkedIn Contacted" };
       const newStage = channelStageMap[logForm.communication_type];
       const newRank = stageRanks[newStage] ?? 0;
-
       const { data: currentContact } = await supabase
         .from("campaign_contacts").select("stage")
         .eq("campaign_id", campaignId).eq("contact_id", logForm.contact_id).single();
-
       const currentRank = stageRanks[currentContact?.stage || "Not Contacted"] ?? 0;
       if (newRank > currentRank) {
         await supabase.from("campaign_contacts").update({ stage: newStage })
@@ -164,7 +198,6 @@ export function CampaignCommunications({ campaignId, isCampaignEnded }: Props) {
       }
     }
 
-    // Recompute account status
     if (accountId) {
       const { data: acContacts } = await supabase.from("campaign_contacts")
         .select("stage").eq("campaign_id", campaignId).eq("account_id", accountId);
@@ -181,42 +214,24 @@ export function CampaignCommunications({ campaignId, isCampaignEnded }: Props) {
     queryClient.invalidateQueries({ queryKey: ["campaign-contacts", campaignId] });
     queryClient.invalidateQueries({ queryKey: ["campaign-accounts", campaignId] });
     setLogModalOpen(false);
-
     await logCreate('campaign_communications', inserted?.id || '', {
-      campaign_id: campaignId,
-      communication_type: logForm.communication_type,
-      contact_id: logForm.contact_id,
-      subject: logForm.subject,
+      campaign_id: campaignId, communication_type: logForm.communication_type,
+      contact_id: logForm.contact_id, subject: logForm.subject,
     });
-
     setLogForm({ communication_type: "Email", contact_id: "", subject: "", body: "", notes: "", email_status: "Sent", call_outcome: "", linkedin_status: "Connection Sent" });
     toast({ title: "Communication logged" });
   };
 
   const handleCreateTask = async () => {
     if (!taskForm.title.trim()) { toast({ title: "Task title is required", variant: "destructive" }); return; }
-
     const { data: inserted, error } = await supabase.from("action_items").insert({
-      title: taskForm.title,
-      description: taskForm.description || null,
-      due_date: taskForm.due_date || null,
-      priority: taskForm.priority,
-      status: "Open",
-      module_type: "campaigns",
-      module_id: campaignId,
-      created_by: user!.id,
-      assigned_to: user!.id,
+      title: taskForm.title, description: taskForm.description || null,
+      due_date: taskForm.due_date || null, priority: taskForm.priority,
+      status: "Open", module_type: "campaigns", module_id: campaignId,
+      created_by: user!.id, assigned_to: user!.id,
     }).select("id").single();
-
     if (error) { toast({ title: "Error creating task", description: error.message, variant: "destructive" }); return; }
-
-    await logCreate('action_items', inserted?.id || '', {
-      title: taskForm.title,
-      module_type: 'campaigns',
-      campaign_id: campaignId,
-      contact_id: taskContactId,
-    });
-
+    await logCreate('action_items', inserted?.id || '', { title: taskForm.title, module_type: 'campaigns', campaign_id: campaignId, contact_id: taskContactId });
     setTaskModalOpen(false);
     setTaskForm({ title: "", description: "", due_date: "", priority: "Medium" });
     setTaskContactId("");
@@ -230,17 +245,11 @@ export function CampaignCommunications({ campaignId, isCampaignEnded }: Props) {
   };
 
   const openReply = (msg: any) => {
-    setReplyContext({
-      parent_id: msg.id,
-      thread_id: msg.thread_id || msg.id,
-      subject: msg.subject || "",
-      contactId: msg.contact_id,
-    });
+    setReplyContext({ parent_id: msg.id, thread_id: msg.thread_id || msg.id, subject: msg.subject || "", contactId: msg.contact_id });
     setEmailComposeOpen(true);
   };
 
   const handleEmailSent = async (sentContactId?: string) => {
-    // Update contact stage after email sent via compose modal
     if (sentContactId) {
       const newStage = "Email Sent";
       const newRank = stageRanks[newStage] ?? 0;
@@ -252,7 +261,6 @@ export function CampaignCommunications({ campaignId, isCampaignEnded }: Props) {
         await supabase.from("campaign_contacts").update({ stage: newStage })
           .eq("campaign_id", campaignId).eq("contact_id", sentContactId);
       }
-      // Recompute account status
       const accountId = currentContact?.account_id;
       if (accountId) {
         const { data: acContacts } = await supabase.from("campaign_contacts")
@@ -279,31 +287,55 @@ export function CampaignCommunications({ campaignId, isCampaignEnded }: Props) {
     });
   };
 
-  const filtered = communications.filter((c: any) => {
+  const openLogModal = (channel: string) => {
+    setLogDefaultChannel(channel);
+    setLogForm(prev => ({ ...prev, communication_type: channel }));
+    setLogModalOpen(true);
+  };
+
+  // --- Filtering ---
+  const applyFilters = (data: any[]) => {
+    return data.filter((c: any) => {
+      if (accountFilter !== "all" && c.account_id !== accountFilter) return false;
+      if (contactFilter !== "all" && c.contact_id !== contactFilter) return false;
+      if (ownerFilter !== "all" && c.owner !== ownerFilter) return false;
+      if (searchTerm) {
+        const q = searchTerm.toLowerCase();
+        const match = c.contacts?.contact_name?.toLowerCase().includes(q) ||
+          c.accounts?.account_name?.toLowerCase().includes(q) ||
+          c.subject?.toLowerCase().includes(q);
+        if (!match) return false;
+      }
+      return true;
+    });
+  };
+
+  const applySort = (data: any[]) => {
+    return [...data].sort((a, b) => {
+      const dateA = new Date(a.communication_date || 0).getTime();
+      const dateB = new Date(b.communication_date || 0).getTime();
+      return sortAsc ? dateA - dateB : dateB - dateA;
+    });
+  };
+
+  // For "All" tab, also apply channel filter
+  const allFiltered = useMemo(() => {
+    let data = communications;
     if (channelFilter !== "all") {
       if (channelFilter === "Call") {
-        if (c.communication_type !== "Call" && c.communication_type !== "Phone") return false;
-      } else if (c.communication_type !== channelFilter) return false;
+        data = data.filter((c: any) => isCall(c.communication_type));
+      } else {
+        data = data.filter((c: any) => c.communication_type === channelFilter);
+      }
     }
-    if (accountFilter !== "all" && c.account_id !== accountFilter) return false;
-    if (contactFilter !== "all" && c.contact_id !== contactFilter) return false;
-    if (ownerFilter !== "all" && c.owner !== ownerFilter) return false;
-    if (searchTerm) {
-      const q = searchTerm.toLowerCase();
-      const match = c.contacts?.contact_name?.toLowerCase().includes(q) ||
-        c.accounts?.account_name?.toLowerCase().includes(q) ||
-        c.subject?.toLowerCase().includes(q);
-      if (!match) return false;
-    }
-    return true;
-  });
+    return applySort(applyFilters(data));
+  }, [communications, channelFilter, accountFilter, contactFilter, ownerFilter, searchTerm, sortAsc]);
 
-  const sorted = [...filtered].sort((a, b) => {
-    const dateA = new Date(a.communication_date || 0).getTime();
-    const dateB = new Date(b.communication_date || 0).getTime();
-    return sortAsc ? dateA - dateB : dateB - dateA;
-  });
+  const emailFiltered = useMemo(() => applySort(applyFilters(emailComms)), [emailComms, accountFilter, contactFilter, ownerFilter, searchTerm, sortAsc]);
+  const linkedinFiltered = useMemo(() => applySort(applyFilters(linkedinComms)), [linkedinComms, accountFilter, contactFilter, ownerFilter, searchTerm, sortAsc]);
+  const callFiltered = useMemo(() => applySort(applyFilters(callComms)), [callComms, accountFilter, contactFilter, ownerFilter, searchTerm, sortAsc]);
 
+  // --- Badges ---
   const channelBadge = (type: string) => {
     const normalizedType = type === "Phone" ? "Call" : type;
     const colors: Record<string, string> = {
@@ -330,227 +362,390 @@ export function CampaignCommunications({ campaignId, isCampaignEnded }: Props) {
   const accountOptions = campaignAccounts.map((ca: any) => ({ id: ca.account_id, name: ca.accounts?.account_name || "Unknown" }));
   const contactOptions = campaignContacts.map((cc: any) => ({ id: cc.contact_id, name: cc.contacts?.contact_name || "Unknown" }));
 
+  // --- Shared table renderer ---
+  const renderCommTable = (data: any[], columns: ColumnDef[], showChannelCol: boolean) => {
+    if (data.length === 0) {
+      return (
+        <div className="text-center py-8">
+          <p className="text-sm text-muted-foreground">No outreach logged yet.</p>
+        </div>
+      );
+    }
+    return (
+      <Table>
+        <TableHeader>
+          <TableRow>
+            <TableHead className="w-8"></TableHead>
+            {columns.map(col => (
+              <TableHead key={col.key} className={col.className || ""} onClick={col.sortable ? () => setSortAsc(!sortAsc) : undefined}>
+                {col.sortable ? <span className="flex items-center gap-1 cursor-pointer select-none">{col.label} <ArrowUpDown className="h-3 w-3" /></span> : col.label}
+              </TableHead>
+            ))}
+            <TableHead className="w-20">Actions</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {data.map((c: any) => (
+            <Fragment key={c.id}>
+              <TableRow className="cursor-pointer" onClick={() => toggleExpand(c.id)}>
+                <TableCell className="px-2">
+                  {expandedRows.has(c.id) ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
+                </TableCell>
+                {columns.map(col => (
+                  <TableCell key={col.key} className={col.className}>{col.render(c)}</TableCell>
+                ))}
+                <TableCell onClick={(e) => e.stopPropagation()}>
+                  <div className="flex items-center gap-0.5">
+                    {!isCampaignEnded && c.communication_type === "Email" && c.contact_id && (
+                      <Button variant="ghost" size="sm" className="h-6 text-[10px] gap-0.5" onClick={() => openReply(c)}>
+                        <Reply className="h-3 w-3" />
+                      </Button>
+                    )}
+                    {!isCampaignEnded && c.contacts?.contact_name && (
+                      <Button variant="ghost" size="sm" className="h-6 text-[10px] gap-0.5"
+                        onClick={() => openTaskForContact(c.contact_id, c.contacts?.contact_name || "")}>
+                        <ListChecks className="h-3 w-3" />
+                      </Button>
+                    )}
+                  </div>
+                </TableCell>
+              </TableRow>
+              {expandedRows.has(c.id) && (
+                <TableRow>
+                  <TableCell colSpan={columns.length + 2} className="bg-muted/30 p-4">
+                    <div className="grid grid-cols-2 gap-4 text-sm">
+                      {c.subject && <div><span className="text-muted-foreground">Subject:</span> {c.subject}</div>}
+                      {c.body && <div><span className="text-muted-foreground">Body:</span> <span className="whitespace-pre-wrap">{c.body}</span></div>}
+                      {c.notes && <div className="col-span-2"><span className="text-muted-foreground">Notes:</span> {c.notes}</div>}
+                      {c.communication_type === "Email" && c.email_status && <div><span className="text-muted-foreground">Email Status:</span> {c.email_status}</div>}
+                      {isCall(c.communication_type) && c.call_outcome && <div><span className="text-muted-foreground">Outcome:</span> {c.call_outcome}</div>}
+                      {c.communication_type === "LinkedIn" && c.linkedin_status && <div><span className="text-muted-foreground">LinkedIn Status:</span> {c.linkedin_status}</div>}
+                      {c.delivery_status && <div><span className="text-muted-foreground">Delivery:</span> {c.delivery_status} {c.sent_via && `(via ${c.sent_via})`}</div>}
+                    </div>
+                  </TableCell>
+                </TableRow>
+              )}
+            </Fragment>
+          ))}
+        </TableBody>
+      </Table>
+    );
+  };
+
+  // --- Stat pill helper ---
+  const StatPill = ({ label, value, color }: { label: string; value: number; color: string }) => (
+    <div className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium ${color}`}>
+      <span className="text-base font-semibold">{value}</span>
+      <span>{label}</span>
+    </div>
+  );
+
+  // --- Column definitions per channel ---
+  const allColumns: ColumnDef[] = [
+    { key: "date", label: "Date", sortable: true, render: (c) => <span className="text-sm whitespace-nowrap">{c.communication_date ? format(new Date(c.communication_date), "dd MMM yyyy HH:mm") : "—"}</span> },
+    { key: "channel", label: "Channel", render: (c) => channelBadge(c.communication_type) },
+    { key: "contact", label: "Contact", render: (c) => <span className="font-medium">{c.contacts?.contact_name || "—"}</span> },
+    { key: "account", label: "Account", render: (c) => c.accounts?.account_name || "—" },
+    { key: "status", label: "Status", render: (c) => c.email_status || c.call_outcome || c.linkedin_status || "—" },
+    { key: "delivery", label: "Delivery", render: (c) => deliveryBadge(c.communication_type, c.delivery_status) },
+    { key: "owner", label: "Owner", render: (c) => <span className="text-sm">{c.owner ? displayNames[c.owner] || "—" : "—"}</span> },
+  ];
+
+  const emailColumns: ColumnDef[] = [
+    { key: "date", label: "Date", sortable: true, render: (c) => <span className="text-sm whitespace-nowrap">{c.communication_date ? format(new Date(c.communication_date), "dd MMM yyyy HH:mm") : "—"}</span> },
+    { key: "contact", label: "Contact", render: (c) => <span className="font-medium">{c.contacts?.contact_name || "—"}</span> },
+    { key: "account", label: "Account", render: (c) => c.accounts?.account_name || "—" },
+    { key: "subject", label: "Subject", render: (c) => <span className="truncate max-w-[200px] block">{c.subject || "—"}</span> },
+    { key: "status", label: "Status", render: (c) => c.email_status || "—" },
+    { key: "delivery", label: "Delivery", render: (c) => deliveryBadge(c.communication_type, c.delivery_status) },
+    { key: "owner", label: "Owner", render: (c) => <span className="text-sm">{c.owner ? displayNames[c.owner] || "—" : "—"}</span> },
+  ];
+
+  const linkedinColumns: ColumnDef[] = [
+    { key: "date", label: "Date", sortable: true, render: (c) => <span className="text-sm whitespace-nowrap">{c.communication_date ? format(new Date(c.communication_date), "dd MMM yyyy HH:mm") : "—"}</span> },
+    { key: "contact", label: "Contact", render: (c) => <span className="font-medium">{c.contacts?.contact_name || "—"}</span> },
+    { key: "account", label: "Account", render: (c) => c.accounts?.account_name || "—" },
+    { key: "linkedin_status", label: "LinkedIn Status", render: (c) => {
+      const s = c.linkedin_status;
+      if (!s) return "—";
+      const colors: Record<string, string> = {
+        "Connection Sent": "bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400",
+        "Connected": "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400",
+        "Message Sent": "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400",
+        "InMail Sent": "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400",
+        "Responded": "bg-primary/10 text-primary",
+        "Not Interested": "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400",
+      };
+      return <Badge className={colors[s] || ""} variant="secondary">{s}</Badge>;
+    }},
+    { key: "notes", label: "Notes", render: (c) => <span className="text-xs text-muted-foreground truncate max-w-[200px] block">{c.notes || "—"}</span> },
+    { key: "owner", label: "Owner", render: (c) => <span className="text-sm">{c.owner ? displayNames[c.owner] || "—" : "—"}</span> },
+  ];
+
+  const callColumns: ColumnDef[] = [
+    { key: "date", label: "Date", sortable: true, render: (c) => <span className="text-sm whitespace-nowrap">{c.communication_date ? format(new Date(c.communication_date), "dd MMM yyyy HH:mm") : "—"}</span> },
+    { key: "contact", label: "Contact", render: (c) => <span className="font-medium">{c.contacts?.contact_name || "—"}</span> },
+    { key: "account", label: "Account", render: (c) => c.accounts?.account_name || "—" },
+    { key: "outcome", label: "Outcome", render: (c) => {
+      const o = c.call_outcome;
+      if (!o) return "—";
+      const colors: Record<string, string> = {
+        "Interested": "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400",
+        "Not Interested": "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400",
+        "Call Later": "bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400",
+        "Wrong Contact": "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400",
+        "No Answer": "bg-muted text-muted-foreground",
+        "Voicemail": "bg-muted text-muted-foreground",
+      };
+      return <Badge className={colors[o] || ""} variant="secondary">{o}</Badge>;
+    }},
+    { key: "notes", label: "Notes", render: (c) => <span className="text-xs text-muted-foreground truncate max-w-[200px] block">{c.notes || "—"}</span> },
+    { key: "owner", label: "Owner", render: (c) => <span className="text-sm">{c.owner ? displayNames[c.owner] || "—" : "—"}</span> },
+  ];
+
+  // --- Filters bar (shared across tabs) ---
+  const renderFilters = (showChannelFilter: boolean) => (
+    <div className="flex flex-wrap gap-2 mb-4">
+      <div className="relative flex-1 min-w-[150px] max-w-xs">
+        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+        <Input placeholder="Search..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="pl-8 h-8 text-xs" />
+      </div>
+      {showChannelFilter && (
+        <Select value={channelFilter} onValueChange={setChannelFilter}>
+          <SelectTrigger className="w-[120px] h-8 text-xs"><SelectValue /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All Channels</SelectItem>
+            <SelectItem value="Email">Email</SelectItem>
+            <SelectItem value="Call">Call</SelectItem>
+            <SelectItem value="LinkedIn">LinkedIn</SelectItem>
+          </SelectContent>
+        </Select>
+      )}
+      {contactOptions.length > 0 && (
+        <Select value={contactFilter} onValueChange={setContactFilter}>
+          <SelectTrigger className="w-[140px] h-8 text-xs"><SelectValue /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All Contacts</SelectItem>
+            {contactOptions.map((c) => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}
+          </SelectContent>
+        </Select>
+      )}
+      {accountOptions.length > 0 && (
+        <Select value={accountFilter} onValueChange={setAccountFilter}>
+          <SelectTrigger className="w-[140px] h-8 text-xs"><SelectValue /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All Accounts</SelectItem>
+            {accountOptions.map((a) => <SelectItem key={a.id} value={a.id}>{a.name}</SelectItem>)}
+          </SelectContent>
+        </Select>
+      )}
+      {ownerIds.length > 0 && (
+        <Select value={ownerFilter} onValueChange={setOwnerFilter}>
+          <SelectTrigger className="w-[140px] h-8 text-xs"><SelectValue /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All Owners</SelectItem>
+            {ownerIds.map((oid) => <SelectItem key={oid} value={oid}>{displayNames[oid] || oid}</SelectItem>)}
+          </SelectContent>
+        </Select>
+      )}
+    </div>
+  );
+
+  // --- Phone script reference panel ---
+  const renderPhoneScripts = () => {
+    if (phoneScripts.length === 0) return null;
+    return (
+      <Card className="border mt-4">
+        <CardHeader className="py-2.5 px-4">
+          <CardTitle className="text-sm flex items-center gap-2"><Phone className="h-3.5 w-3.5 text-primary" /> Call Scripts</CardTitle>
+        </CardHeader>
+        <CardContent className="px-4 pb-3">
+          <div className="space-y-2">
+            {phoneScripts.map((script: any) => (
+              <Collapsible key={script.id} defaultOpen={phoneScripts.length === 1}>
+                <CollapsibleTrigger className="flex items-center gap-2 w-full text-left text-sm font-medium p-2 rounded hover:bg-muted/50">
+                  <ChevronDown className="h-3.5 w-3.5" /> {script.script_name || "Script"}
+                </CollapsibleTrigger>
+                <CollapsibleContent className="pl-6 space-y-2 text-sm text-muted-foreground">
+                  {script.opening_script && <div><p className="font-medium text-foreground text-xs">Opening</p><p className="whitespace-pre-wrap">{script.opening_script}</p></div>}
+                  {script.key_talking_points && <div><p className="font-medium text-foreground text-xs">Key Points</p>{(() => { try { const pts = JSON.parse(script.key_talking_points); if (Array.isArray(pts)) return <ul className="list-disc ml-4">{pts.map((p: string, i: number) => <li key={i}>{p}</li>)}</ul>; } catch {} return <p className="whitespace-pre-wrap">{script.key_talking_points}</p>; })()}</div>}
+                  {script.discovery_questions && <div><p className="font-medium text-foreground text-xs">Questions</p>{(() => { try { const qs = JSON.parse(script.discovery_questions); if (Array.isArray(qs)) return <ul className="list-disc ml-4">{qs.map((q: string, i: number) => <li key={i}>{q}</li>)}</ul>; } catch {} return <p className="whitespace-pre-wrap">{script.discovery_questions}</p>; })()}</div>}
+                  {script.objection_handling && <div><p className="font-medium text-foreground text-xs">Objections</p>{(() => { try { const objs = JSON.parse(script.objection_handling); if (Array.isArray(objs)) return <div className="space-y-1">{objs.map((o: any, i: number) => <div key={i} className="border-l-2 border-muted pl-2"><p className="text-xs"><strong>Q:</strong> {o.objection}</p><p className="text-xs"><strong>A:</strong> {o.response}</p></div>)}</div>; } catch {} return <p className="whitespace-pre-wrap">{script.objection_handling}</p>; })()}</div>}
+                </CollapsibleContent>
+              </Collapsible>
+            ))}
+          </div>
+        </CardContent>
+      </Card>
+    );
+  };
+
+  // --- Thread view (All tab only) ---
+  const renderThreadView = () => (
+    <div className="space-y-2">
+      {threads.length === 0 ? (
+        <div className="text-center py-8"><p className="text-sm text-muted-foreground">No outreach logged yet.</p></div>
+      ) : (
+        threads.map(thread => (
+          <Card key={thread.contactId} className="border">
+            <Collapsible>
+              <CollapsibleTrigger asChild>
+                <CardHeader className="py-2.5 px-4 cursor-pointer hover:bg-muted/30 transition-colors">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <span className="font-medium text-sm">{thread.contactName}</span>
+                      {thread.accountName && <span className="text-xs text-muted-foreground">· {thread.accountName}</span>}
+                      <span className="text-xs text-muted-foreground">({thread.messages.length} messages)</span>
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      {thread.channelCounts.Email > 0 && <Badge variant="secondary" className="text-[10px] gap-0.5"><Mail className="h-2.5 w-2.5" />{thread.channelCounts.Email}</Badge>}
+                      {thread.channelCounts.Call > 0 && <Badge variant="secondary" className="text-[10px] gap-0.5"><Phone className="h-2.5 w-2.5" />{thread.channelCounts.Call}</Badge>}
+                      {thread.channelCounts.LinkedIn > 0 && <Badge variant="secondary" className="text-[10px] gap-0.5"><MessageSquare className="h-2.5 w-2.5" />{thread.channelCounts.LinkedIn}</Badge>}
+                      {!isCampaignEnded && (
+                        <Button variant="ghost" size="sm" className="h-6 text-[10px] gap-0.5" onClick={(e) => { e.stopPropagation(); openTaskForContact(thread.contactId, thread.contactName); }}>
+                          <ListChecks className="h-3 w-3" /> Task
+                        </Button>
+                      )}
+                    </div>
+                  </div>
+                </CardHeader>
+              </CollapsibleTrigger>
+              <CollapsibleContent>
+                <CardContent className="pt-0 px-4 pb-3">
+                  <div className="space-y-2 border-l-2 border-muted pl-3">
+                    {thread.messages.map((msg: any) => (
+                      <div key={msg.id} className="text-sm">
+                        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                          {channelBadge(msg.communication_type)}
+                          <span>{msg.communication_date ? format(new Date(msg.communication_date), "dd MMM yyyy HH:mm") : "—"}</span>
+                          {deliveryBadge(msg.communication_type, msg.delivery_status)}
+                          {msg.sent_via === "azure" && <Badge variant="outline" className="text-[10px] px-1 py-0">Sent via email</Badge>}
+                          {msg.parent_id && <Badge variant="outline" className="text-[10px] px-1 py-0">Reply</Badge>}
+                          <span className="ml-auto flex items-center gap-1">
+                            {!isCampaignEnded && msg.communication_type === "Email" && msg.contact_id && (
+                              <Button variant="ghost" size="sm" className="h-5 text-[10px] gap-0.5 px-1.5" onClick={(e) => { e.stopPropagation(); openReply(msg); }}>
+                                <Reply className="h-3 w-3" /> Reply
+                              </Button>
+                            )}
+                            {msg.owner ? displayNames[msg.owner] || "—" : "—"}
+                          </span>
+                        </div>
+                        {msg.subject && <p className="font-medium mt-0.5">{msg.subject}</p>}
+                        {msg.body && <p className="text-muted-foreground whitespace-pre-wrap mt-0.5 text-xs">{msg.body.substring(0, 200)}{msg.body.length > 200 ? "..." : ""}</p>}
+                        {msg.notes && <p className="text-xs italic text-muted-foreground mt-0.5">Note: {msg.notes}</p>}
+                        {msg.email_status && <span className="text-xs text-muted-foreground">Status: {msg.email_status}</span>}
+                        {msg.call_outcome && <span className="text-xs text-muted-foreground">Outcome: {msg.call_outcome}</span>}
+                        {msg.linkedin_status && <span className="text-xs text-muted-foreground">LinkedIn: {msg.linkedin_status}</span>}
+                      </div>
+                    ))}
+                  </div>
+                </CardContent>
+              </CollapsibleContent>
+            </Collapsible>
+          </Card>
+        ))
+      )}
+    </div>
+  );
+
   return (
     <div className="space-y-3">
       <Card className="border">
         <CardHeader className="flex flex-row items-center justify-between">
           <CardTitle className="text-base flex items-center gap-2"><MessageSquare className="h-4 w-4" /> Outreach ({communications.length})</CardTitle>
           <div className="flex items-center gap-2">
-            <Tabs value={viewMode} onValueChange={(v) => setViewMode(v as any)} className="h-8">
-              <TabsList className="h-7">
-                <TabsTrigger value="list" className="text-xs h-6 px-2">List</TabsTrigger>
-                <TabsTrigger value="threads" className="text-xs h-6 px-2">Threads</TabsTrigger>
-              </TabsList>
-            </Tabs>
+            {outreachTab === "all" && (
+              <Tabs value={viewMode} onValueChange={(v) => setViewMode(v as any)} className="h-8">
+                <TabsList className="h-7">
+                  <TabsTrigger value="list" className="text-xs h-6 px-2">List</TabsTrigger>
+                  <TabsTrigger value="threads" className="text-xs h-6 px-2">Threads</TabsTrigger>
+                </TabsList>
+              </Tabs>
+            )}
             <Button variant="outline" size="sm" onClick={() => refetch()}>
               <RefreshCw className="h-3.5 w-3.5 mr-1" /> Refresh
             </Button>
-            {!isCampaignEnded ? (
+            {!isCampaignEnded && (
               <div className="flex gap-1.5">
-                <Button size="sm" variant="default" className="gap-1" onClick={() => setEmailComposeOpen(true)}>
-                  <Send className="h-3.5 w-3.5" /> Send Email
-                </Button>
-                <Button size="sm" variant="outline" onClick={() => setLogModalOpen(true)}>
-                  <Plus className="h-3.5 w-3.5 mr-1" /> Log
+                {(outreachTab === "all" || outreachTab === "email") && (
+                  <Button size="sm" variant="default" className="gap-1" onClick={() => setEmailComposeOpen(true)}>
+                    <Send className="h-3.5 w-3.5" /> Send Email
+                  </Button>
+                )}
+                <Button size="sm" variant="outline" onClick={() => openLogModal(
+                  outreachTab === "email" ? "Email" : outreachTab === "linkedin" ? "LinkedIn" : outreachTab === "call" ? "Call" : "Email"
+                )}>
+                  <Plus className="h-3.5 w-3.5 mr-1" />
+                  {outreachTab === "email" ? "Log Email" : outreachTab === "linkedin" ? "Log LinkedIn" : outreachTab === "call" ? "Log Call" : "Log"}
                 </Button>
               </div>
-            ) : (
+            )}
+            {isCampaignEnded && (
               <Badge variant="destructive" className="flex items-center gap-1"><AlertTriangle className="h-3 w-3" /> Ended</Badge>
             )}
           </div>
         </CardHeader>
         <CardContent>
-          {/* Filters */}
-          <div className="flex flex-wrap gap-2 mb-4">
-            <div className="relative flex-1 min-w-[150px] max-w-xs">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
-              <Input placeholder="Search..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="pl-8 h-8 text-xs" />
-            </div>
-            <Select value={channelFilter} onValueChange={setChannelFilter}>
-              <SelectTrigger className="w-[120px] h-8 text-xs"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Channels</SelectItem>
-                <SelectItem value="Email">Email</SelectItem>
-                <SelectItem value="Call">Call</SelectItem>
-                <SelectItem value="LinkedIn">LinkedIn</SelectItem>
-              </SelectContent>
-            </Select>
-            {contactOptions.length > 0 && (
-              <Select value={contactFilter} onValueChange={setContactFilter}>
-                <SelectTrigger className="w-[140px] h-8 text-xs"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All Contacts</SelectItem>
-                  {contactOptions.map((c) => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}
-                </SelectContent>
-              </Select>
-            )}
-            {accountOptions.length > 0 && (
-              <Select value={accountFilter} onValueChange={setAccountFilter}>
-                <SelectTrigger className="w-[140px] h-8 text-xs"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All Accounts</SelectItem>
-                  {accountOptions.map((a) => <SelectItem key={a.id} value={a.id}>{a.name}</SelectItem>)}
-                </SelectContent>
-              </Select>
-            )}
-            {ownerIds.length > 0 && (
-              <Select value={ownerFilter} onValueChange={setOwnerFilter}>
-                <SelectTrigger className="w-[140px] h-8 text-xs"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All Owners</SelectItem>
-                  {ownerIds.map((oid) => <SelectItem key={oid} value={oid}>{displayNames[oid] || oid}</SelectItem>)}
-                </SelectContent>
-              </Select>
-            )}
-          </div>
+          {/* Inner channel sub-tabs */}
+          <Tabs value={outreachTab} onValueChange={(v) => setOutreachTab(v as OutreachTab)} className="mb-4">
+            <TabsList className="h-8">
+              <TabsTrigger value="all" className="text-xs h-7 px-3 gap-1">
+                All <Badge variant="secondary" className="text-[10px] px-1 py-0 ml-0.5">{communications.length}</Badge>
+              </TabsTrigger>
+              <TabsTrigger value="email" className="text-xs h-7 px-3 gap-1">
+                <Mail className="h-3 w-3" /> Email <Badge variant="secondary" className="text-[10px] px-1 py-0 ml-0.5">{emailComms.length}</Badge>
+              </TabsTrigger>
+              <TabsTrigger value="linkedin" className="text-xs h-7 px-3 gap-1">
+                <Linkedin className="h-3 w-3" /> LinkedIn <Badge variant="secondary" className="text-[10px] px-1 py-0 ml-0.5">{linkedinComms.length}</Badge>
+              </TabsTrigger>
+              <TabsTrigger value="call" className="text-xs h-7 px-3 gap-1">
+                <Phone className="h-3 w-3" /> Call <Badge variant="secondary" className="text-[10px] px-1 py-0 ml-0.5">{callComms.length}</Badge>
+              </TabsTrigger>
+            </TabsList>
 
-          {/* Thread View */}
-          {viewMode === "threads" && (
-            <div className="space-y-2">
-              {threads.length === 0 ? (
-                <div className="text-center py-8">
-                  <p className="text-sm text-muted-foreground">No outreach logged yet.</p>
-                </div>
-              ) : (
-                threads.map(thread => (
-                  <Card key={thread.contactId} className="border">
-                    <Collapsible>
-                      <CollapsibleTrigger asChild>
-                        <CardHeader className="py-2.5 px-4 cursor-pointer hover:bg-muted/30 transition-colors">
-                          <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-2">
-                              <span className="font-medium text-sm">{thread.contactName}</span>
-                              {thread.accountName && <span className="text-xs text-muted-foreground">· {thread.accountName}</span>}
-                              <span className="text-xs text-muted-foreground">({thread.messages.length} messages)</span>
-                            </div>
-                            <div className="flex items-center gap-1.5">
-                              {thread.channelCounts.Email > 0 && <Badge variant="secondary" className="text-[10px] gap-0.5"><Mail className="h-2.5 w-2.5" />{thread.channelCounts.Email}</Badge>}
-                              {thread.channelCounts.Call > 0 && <Badge variant="secondary" className="text-[10px] gap-0.5"><Phone className="h-2.5 w-2.5" />{thread.channelCounts.Call}</Badge>}
-                              {thread.channelCounts.LinkedIn > 0 && <Badge variant="secondary" className="text-[10px] gap-0.5"><MessageSquare className="h-2.5 w-2.5" />{thread.channelCounts.LinkedIn}</Badge>}
-                              {!isCampaignEnded && (
-                                <Button variant="ghost" size="sm" className="h-6 text-[10px] gap-0.5" onClick={(e) => { e.stopPropagation(); openTaskForContact(thread.contactId, thread.contactName); }}>
-                                  <ListChecks className="h-3 w-3" /> Task
-                                </Button>
-                              )}
-                            </div>
-                          </div>
-                        </CardHeader>
-                      </CollapsibleTrigger>
-                      <CollapsibleContent>
-                        <CardContent className="pt-0 px-4 pb-3">
-                          <div className="space-y-2 border-l-2 border-muted pl-3">
-                            {thread.messages.map((msg: any) => (
-                              <div key={msg.id} className="text-sm">
-                                <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                                  {channelBadge(msg.communication_type)}
-                                  <span>{msg.communication_date ? format(new Date(msg.communication_date), "dd MMM yyyy HH:mm") : "—"}</span>
-                                  {deliveryBadge(msg.communication_type, msg.delivery_status)}
-                                  {msg.sent_via === "azure" && <Badge variant="outline" className="text-[10px] px-1 py-0">Sent via email</Badge>}
-                                  {msg.parent_id && <Badge variant="outline" className="text-[10px] px-1 py-0">Reply</Badge>}
-                                  <span className="ml-auto flex items-center gap-1">
-                                    {!isCampaignEnded && msg.communication_type === "Email" && msg.contact_id && (
-                                      <Button variant="ghost" size="sm" className="h-5 text-[10px] gap-0.5 px-1.5" onClick={(e) => { e.stopPropagation(); openReply(msg); }}>
-                                        <Reply className="h-3 w-3" /> Reply
-                                      </Button>
-                                    )}
-                                    {msg.owner ? displayNames[msg.owner] || "—" : "—"}
-                                  </span>
-                                </div>
-                                {msg.subject && <p className="font-medium mt-0.5">{msg.subject}</p>}
-                                {msg.body && <p className="text-muted-foreground whitespace-pre-wrap mt-0.5 text-xs">{msg.body.substring(0, 200)}{msg.body.length > 200 ? "..." : ""}</p>}
-                                {msg.notes && <p className="text-xs italic text-muted-foreground mt-0.5">Note: {msg.notes}</p>}
-                                {msg.email_status && <span className="text-xs text-muted-foreground">Status: {msg.email_status}</span>}
-                                {msg.call_outcome && <span className="text-xs text-muted-foreground">Outcome: {msg.call_outcome}</span>}
-                                {msg.linkedin_status && <span className="text-xs text-muted-foreground">LinkedIn: {msg.linkedin_status}</span>}
-                              </div>
-                            ))}
-                          </div>
-                        </CardContent>
-                      </CollapsibleContent>
-                    </Collapsible>
-                  </Card>
-                ))
-              )}
-            </div>
-          )}
+            {/* ALL TAB */}
+            <TabsContent value="all" className="mt-3">
+              {renderFilters(true)}
+              {viewMode === "threads" ? renderThreadView() : renderCommTable(allFiltered, allColumns, true)}
+            </TabsContent>
 
-          {/* List View */}
-          {viewMode === "list" && (
-            <>
-              {sorted.length === 0 ? (
-                <div className="text-center py-8">
-                  <p className="text-sm text-muted-foreground">No outreach logged yet. Use "Send Email" to compose or "Log" to record outreach.</p>
-                </div>
-              ) : (
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead className="w-8"></TableHead>
-                      <TableHead className="cursor-pointer select-none" onClick={() => setSortAsc(!sortAsc)}>
-                        <span className="flex items-center gap-1">Date <ArrowUpDown className="h-3 w-3" /></span>
-                      </TableHead>
-                      <TableHead>Channel</TableHead>
-                      <TableHead>Contact</TableHead>
-                      <TableHead>Account</TableHead>
-                      <TableHead>Status</TableHead>
-                      <TableHead>Delivery</TableHead>
-                      <TableHead>Owner</TableHead>
-                      <TableHead className="w-20">Actions</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {sorted.map((c: any) => (
-                      <Fragment key={c.id}>
-                        <TableRow className="cursor-pointer" onClick={() => toggleExpand(c.id)}>
-                          <TableCell className="px-2">
-                            {expandedRows.has(c.id) ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
-                          </TableCell>
-                          <TableCell className="text-sm whitespace-nowrap">{c.communication_date ? format(new Date(c.communication_date), "dd MMM yyyy HH:mm") : "—"}</TableCell>
-                          <TableCell>{channelBadge(c.communication_type)}</TableCell>
-                          <TableCell className="font-medium">{c.contacts?.contact_name || "—"}</TableCell>
-                          <TableCell>{c.accounts?.account_name || "—"}</TableCell>
-                          <TableCell>{c.email_status || c.call_outcome || c.linkedin_status || "—"}</TableCell>
-                          <TableCell>{deliveryBadge(c.communication_type, c.delivery_status)}</TableCell>
-                          <TableCell className="text-sm">{c.owner ? displayNames[c.owner] || "—" : "—"}</TableCell>
-                          <TableCell onClick={(e) => e.stopPropagation()}>
-                            <div className="flex items-center gap-0.5">
-                              {!isCampaignEnded && c.communication_type === "Email" && c.contact_id && (
-                                <Button variant="ghost" size="sm" className="h-6 text-[10px] gap-0.5"
-                                  onClick={() => openReply(c)}>
-                                  <Reply className="h-3 w-3" />
-                                </Button>
-                              )}
-                              {!isCampaignEnded && c.contacts?.contact_name && (
-                                <Button variant="ghost" size="sm" className="h-6 text-[10px] gap-0.5"
-                                  onClick={() => openTaskForContact(c.contact_id, c.contacts?.contact_name || "")}>
-                                  <ListChecks className="h-3 w-3" />
-                                </Button>
-                              )}
-                            </div>
-                          </TableCell>
-                        </TableRow>
-                        {expandedRows.has(c.id) && (
-                          <TableRow>
-                            <TableCell colSpan={9} className="bg-muted/30 p-4">
-                              <div className="grid grid-cols-2 gap-4 text-sm">
-                                {c.subject && <div><span className="text-muted-foreground">Subject:</span> {c.subject}</div>}
-                                {c.body && <div><span className="text-muted-foreground">Body:</span> <span className="whitespace-pre-wrap">{c.body}</span></div>}
-                                {c.notes && <div className="col-span-2"><span className="text-muted-foreground">Notes:</span> {c.notes}</div>}
-                                {c.communication_type === "Email" && c.email_status && <div><span className="text-muted-foreground">Email Status:</span> {c.email_status}</div>}
-                                {c.communication_type === "Call" && c.call_outcome && <div><span className="text-muted-foreground">Outcome:</span> {c.call_outcome}</div>}
-                                {c.communication_type === "LinkedIn" && c.linkedin_status && <div><span className="text-muted-foreground">LinkedIn Status:</span> {c.linkedin_status}</div>}
-                                {c.delivery_status && <div><span className="text-muted-foreground">Delivery:</span> {c.delivery_status} {c.sent_via && `(via ${c.sent_via})`}</div>}
-                              </div>
-                            </TableCell>
-                          </TableRow>
-                        )}
-                      </Fragment>
-                    ))}
-                  </TableBody>
-                </Table>
-              )}
-            </>
-          )}
+            {/* EMAIL TAB */}
+            <TabsContent value="email" className="mt-3">
+              <div className="flex flex-wrap gap-2 mb-4">
+                <StatPill label="Sent" value={emailStats.sent} color="bg-blue-50 text-blue-700 dark:bg-blue-900/20 dark:text-blue-400" />
+                <StatPill label="Opened" value={emailStats.opened} color="bg-green-50 text-green-700 dark:bg-green-900/20 dark:text-green-400" />
+                <StatPill label="Replied" value={emailStats.replied} color="bg-primary/5 text-primary" />
+                <StatPill label="Bounced" value={emailStats.bounced} color="bg-red-50 text-red-700 dark:bg-red-900/20 dark:text-red-400" />
+              </div>
+              {renderFilters(false)}
+              {renderCommTable(emailFiltered, emailColumns, false)}
+            </TabsContent>
+
+            {/* LINKEDIN TAB */}
+            <TabsContent value="linkedin" className="mt-3">
+              <div className="flex flex-wrap gap-2 mb-4">
+                <StatPill label="Connection Sent" value={linkedinStats.connectionSent} color="bg-yellow-50 text-yellow-700 dark:bg-yellow-900/20 dark:text-yellow-400" />
+                <StatPill label="Connected" value={linkedinStats.connected} color="bg-green-50 text-green-700 dark:bg-green-900/20 dark:text-green-400" />
+                <StatPill label="Message Sent" value={linkedinStats.messageSent} color="bg-blue-50 text-blue-700 dark:bg-blue-900/20 dark:text-blue-400" />
+                <StatPill label="Responded" value={linkedinStats.responded} color="bg-primary/5 text-primary" />
+              </div>
+              {renderFilters(false)}
+              {renderCommTable(linkedinFiltered, linkedinColumns, false)}
+            </TabsContent>
+
+            {/* CALL TAB */}
+            <TabsContent value="call" className="mt-3">
+              <div className="flex flex-wrap gap-2 mb-4">
+                <StatPill label="Interested" value={callStats.interested} color="bg-green-50 text-green-700 dark:bg-green-900/20 dark:text-green-400" />
+                <StatPill label="Not Interested" value={callStats.notInterested} color="bg-red-50 text-red-700 dark:bg-red-900/20 dark:text-red-400" />
+                <StatPill label="Call Later" value={callStats.callLater} color="bg-yellow-50 text-yellow-700 dark:bg-yellow-900/20 dark:text-yellow-400" />
+                <StatPill label="No Answer" value={callStats.noAnswer} color="bg-muted text-muted-foreground" />
+              </div>
+              {renderFilters(false)}
+              {renderCommTable(callFiltered, callColumns, false)}
+              {renderPhoneScripts()}
+            </TabsContent>
+          </Tabs>
         </CardContent>
       </Card>
 
