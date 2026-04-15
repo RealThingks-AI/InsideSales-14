@@ -1,91 +1,53 @@
 
+Goal: make campaign emails use the same working email path the project already relies on, and stop showing “sent” when nothing was actually delivered.
 
-## Fix Note Editor Bullet Point & Stakeholders Layout Issues
+What I found
+- Campaign email sending is isolated in `supabase/functions/send-campaign-email/index.ts` and is hardcoded to Microsoft Graph/Azure.
+- The campaign compose UI calls only that function from `src/components/campaigns/EmailComposeModal.tsx`.
+- Manual outreach logging in `src/components/campaigns/CampaignCommunications.tsx` writes directly to `campaign_communications` with `sent_via = "manual"` and can still show statuses like “Sent”, which is misleading.
+- Existing reminder emails in `supabase/functions/daily-action-reminders/index.ts` also use Microsoft Graph, so the “existing configured email service” in code is Microsoft Graph.
+- However, there is currently no configured project email domain and no runtime secrets available, so there is no active sender configuration available to reuse right now.
+- The Email Center UI reads from `email_history`, but campaign sends only insert minimal rows there and do not integrate with the richer delivery fields the UI expects.
 
-### Issues Found
+Implementation plan
+1. Unify campaign sending with the existing sender utility
+- Extract the Microsoft Graph token/send logic into a shared helper under `supabase/functions/_shared/` so both `daily-action-reminders` and `send-campaign-email` use the same code path.
+- Make `send-campaign-email` use that shared helper instead of maintaining separate Azure-specific logic.
 
-1. **Bullet point moves when typing**: `autoFocus` on the Textarea (line 633) places the cursor at position 0 (before `"• "`), so typing inserts text before the bullet instead of after it.
+2. Harden send result handling
+- Treat only a real provider success response as sent.
+- Return structured failure reasons from the function.
+- Write richer failure details into `campaign_communications` and `email_history` so the UI can show what happened.
 
-2. **Notes panel lacks proper scrollbar**: The notes summary panel (line 580-679) has a `max-h-[280px]` on the inner div but the outer wrapper has no scroll constraint, so it still pushes content.
+3. Fix misleading campaign UI states
+- In `EmailComposeModal`, surface provider errors clearly instead of generic “Unknown error”.
+- In `CampaignCommunications`, visually separate:
+  - Sent via provider
+  - Logged manually
+  - Failed delivery
+- Update badges/text so manual entries are never counted or displayed as actual delivered emails.
 
-3. **Stakeholders section grows unbounded**: The `StakeholdersSection` component has no max-height. When the Notes panel is open with many notes, it consumes all vertical space, squishing the Updates and Action Items sections to near-zero height.
+4. Fix campaign analytics logic
+- Update `src/components/campaigns/CampaignAnalytics.tsx` so manual logs are not counted as delivered/sent email performance.
+- Base email metrics on `delivery_status` and provider-backed records, not optimistic/manual statuses.
 
-### Changes (single file: `src/components/DealExpandedPanel.tsx`)
+5. Align Email Center visibility
+- Improve `email_history` writes from campaign sends so they match the Email Center’s expectations more closely.
+- Ensure failed campaign sends appear as failures and successful sends can be distinguished from true delivered/opened/replied states.
 
-#### Fix 1: Bullet cursor positioning (line 628-634)
+6. Sender configuration follow-up
+- Since no runtime secrets are currently configured, I’ll keep the code wired to the existing Microsoft Graph path and make it fail clearly until the current sender credentials are present.
+- If you want, after approval I can also add a small admin-side status indicator that tells you whether campaign email sending is currently configured.
 
-Replace `autoFocus` on the Textarea with a `ref` callback that focuses the element AND places the cursor at the end of the text (after `"• "`):
+Files likely to change
+- `supabase/functions/send-campaign-email/index.ts`
+- `supabase/functions/daily-action-reminders/index.ts`
+- `src/components/campaigns/EmailComposeModal.tsx`
+- `src/components/campaigns/CampaignCommunications.tsx`
+- `src/components/campaigns/CampaignAnalytics.tsx`
+- possibly a new shared helper under `supabase/functions/_shared/`
 
-```tsx
-<Textarea
-  value={noteText}
-  onChange={(e) => setNoteText(e.target.value)}
-  onKeyDown={handleNoteKeyDown}
-  className="min-h-[100px] text-xs resize-none"
-  ref={(el) => {
-    if (el) {
-      el.focus();
-      const len = el.value.length;
-      el.selectionStart = len;
-      el.selectionEnd = len;
-    }
-  }}
-/>
-```
-
-#### Fix 2: Constrain Stakeholders section height
-
-Wrap the StakeholdersSection output in a container with `max-h` and `overflow-y-auto` so it scrolls when content is large. Change the outer div (line 462) from:
-
-```tsx
-<div className="px-3 pt-1.5 pb-1">
-```
-
-to:
-
-```tsx
-<div className="px-3 pt-1.5 pb-1 max-h-[45%] overflow-y-auto shrink-0">
-```
-
-However, since this is not inside a flex parent that uses percentage heights well, a better approach is to change the parent layout. The parent (line 1182) is:
-
-```tsx
-<div className="flex-1 min-h-0 flex flex-col overflow-hidden gap-1">
-```
-
-The fix: Make the StakeholdersSection a flex item that can shrink, and give it a max-height so it doesn't dominate. Change line 1184 from:
-
-```tsx
-<StakeholdersSection deal={deal} queryClient={queryClient} />
-```
-
-to wrap it in a constrained container:
-
-```tsx
-<div className="shrink-0 max-h-[40%] overflow-y-auto">
-  <StakeholdersSection deal={deal} queryClient={queryClient} />
-</div>
-```
-
-This ensures:
-- Stakeholders section gets at most 40% of the panel height
-- When content exceeds that, a scrollbar appears
-- Updates and Action Items always get their fair share of space
-
-#### Fix 3: Ensure notes panel scrolls properly
-
-The notes summary panel (line 596) already has `max-h-[280px] overflow-y-auto`, but when inside the constrained container from Fix 2, this works correctly. No additional change needed here -- the outer scroll from Fix 2 handles it.
-
-### Summary
-
-| Change | Line(s) | Description |
-|--------|---------|-------------|
-| Replace `autoFocus` with ref callback | 628-634 | Cursor placed after bullet on open |
-| Wrap StakeholdersSection in scrollable container | 1184 | Max 40% height with scrollbar |
-
-### Technical Notes
-
-- The ref callback fires on every render, but since `el.focus()` is idempotent when already focused, this is harmless
-- The `max-h-[40%]` works because the parent has `flex-1 min-h-0` which resolves to an actual pixel height
-- Updates and Action Items sections keep their `flex-1 min-h-0` with `h-[220px]`, ensuring they share remaining space equally
-
+Technical notes
+- The current issue is not just delivery; it is also state integrity. The app can record “sent” in campaign views even when an email was only logged manually or the provider path is not configured.
+- There is no Lovable email domain configured for this project and no runtime secrets currently present, so there is nothing active to switch over to automatically right now.
+- Best path is to consolidate around the already implemented Microsoft Graph sender logic, remove misleading UI assumptions, and make configuration errors explicit.
