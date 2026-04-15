@@ -1,53 +1,67 @@
 
-Goal: make campaign emails use the same working email path the project already relies on, and stop showing “sent” when nothing was actually delivered.
 
-What I found
-- Campaign email sending is isolated in `supabase/functions/send-campaign-email/index.ts` and is hardcoded to Microsoft Graph/Azure.
-- The campaign compose UI calls only that function from `src/components/campaigns/EmailComposeModal.tsx`.
-- Manual outreach logging in `src/components/campaigns/CampaignCommunications.tsx` writes directly to `campaign_communications` with `sent_via = "manual"` and can still show statuses like “Sent”, which is misleading.
-- Existing reminder emails in `supabase/functions/daily-action-reminders/index.ts` also use Microsoft Graph, so the “existing configured email service” in code is Microsoft Graph.
-- However, there is currently no configured project email domain and no runtime secrets available, so there is no active sender configuration available to reuse right now.
-- The Email Center UI reads from `email_history`, but campaign sends only insert minimal rows there and do not integrate with the richer delivery fields the UI expects.
+## Add Email / LinkedIn / Call Subsections to Outreach Tab
 
-Implementation plan
-1. Unify campaign sending with the existing sender utility
-- Extract the Microsoft Graph token/send logic into a shared helper under `supabase/functions/_shared/` so both `daily-action-reminders` and `send-campaign-email` use the same code path.
-- Make `send-campaign-email` use that shared helper instead of maintaining separate Azure-specific logic.
+Currently the Outreach tab shows all communications in a single flat list/thread view. The plan adds three dedicated sub-tabs within the Outreach section, each with channel-specific UI, metrics, and actions.
 
-2. Harden send result handling
-- Treat only a real provider success response as sent.
-- Return structured failure reasons from the function.
-- Write richer failure details into `campaign_communications` and `email_history` so the UI can show what happened.
+### Design
 
-3. Fix misleading campaign UI states
-- In `EmailComposeModal`, surface provider errors clearly instead of generic “Unknown error”.
-- In `CampaignCommunications`, visually separate:
-  - Sent via provider
-  - Logged manually
-  - Failed delivery
-- Update badges/text so manual entries are never counted or displayed as actual delivered emails.
+The existing `CampaignCommunications` component will gain an inner `Tabs` component with four tabs:
 
-4. Fix campaign analytics logic
-- Update `src/components/campaigns/CampaignAnalytics.tsx` so manual logs are not counted as delivered/sent email performance.
-- Base email metrics on `delivery_status` and provider-backed records, not optimistic/manual statuses.
+1. **All** — current unified list/thread view (default)
+2. **Email** — filtered to Email only, shows email-specific columns (Subject, Status, Delivery), "Send Email" and "Reply" actions
+3. **LinkedIn** — filtered to LinkedIn only, shows LinkedIn-specific columns (Connection Status, Message), "Log LinkedIn" action
+4. **Call** — filtered to Call/Phone only, shows call-specific columns (Outcome, Duration), phone script reference panel, "Log Call" action
 
-5. Align Email Center visibility
-- Improve `email_history` writes from campaign sends so they match the Email Center’s expectations more closely.
-- Ensure failed campaign sends appear as failures and successful sends can be distinguished from true delivered/opened/replied states.
+Each sub-tab shows a count badge (e.g., "Email (5)") and channel-specific summary stats at the top (e.g., Sent/Opened/Replied counts for Email).
 
-6. Sender configuration follow-up
-- Since no runtime secrets are currently configured, I’ll keep the code wired to the existing Microsoft Graph path and make it fail clearly until the current sender credentials are present.
-- If you want, after approval I can also add a small admin-side status indicator that tells you whether campaign email sending is currently configured.
+### Changes
 
-Files likely to change
-- `supabase/functions/send-campaign-email/index.ts`
-- `supabase/functions/daily-action-reminders/index.ts`
-- `src/components/campaigns/EmailComposeModal.tsx`
-- `src/components/campaigns/CampaignCommunications.tsx`
-- `src/components/campaigns/CampaignAnalytics.tsx`
-- possibly a new shared helper under `supabase/functions/_shared/`
+**File: `src/components/campaigns/CampaignCommunications.tsx`** (rewrite ~350 lines)
 
-Technical notes
-- The current issue is not just delivery; it is also state integrity. The app can record “sent” in campaign views even when an email was only logged manually or the provider path is not configured.
-- There is no Lovable email domain configured for this project and no runtime secrets currently present, so there is nothing active to switch over to automatically right now.
-- Best path is to consolidate around the already implemented Microsoft Graph sender logic, remove misleading UI assumptions, and make configuration errors explicit.
+1. Add `outreachTab` state: `"all" | "email" | "linkedin" | "call"` defaulting to `"all"`
+
+2. Compute per-channel counts from `communications`:
+   - `emailComms` = filter by `communication_type === "Email"`
+   - `linkedinComms` = filter by `communication_type === "LinkedIn"`
+   - `callComms` = filter by `communication_type === "Call" || "Phone"`
+
+3. Add inner Tabs below the header:
+   ```
+   All (total) | Email (n) | LinkedIn (n) | Call (n)
+   ```
+
+4. **All tab** — keeps existing list/thread view with all filters intact (no changes)
+
+5. **Email tab** — dedicated view:
+   - Summary stats row: Sent count, Opened count, Replied count, Bounced count
+   - Table columns: Date, Contact, Account, Subject, Status, Delivery, Owner, Actions (Reply, Task)
+   - "Send Email" button in header
+   - Filters: contact, account, owner (channel filter removed since it's implicit)
+
+6. **LinkedIn tab** — dedicated view:
+   - Summary stats row: Connection Sent, Connected, Message Sent, Responded counts
+   - Table columns: Date, Contact, Account, LinkedIn Status, Notes, Owner, Actions (Task)
+   - "Log LinkedIn" button in header opens log modal pre-set to LinkedIn channel
+
+7. **Call tab** — dedicated view:
+   - Summary stats row: Interested, Not Interested, Call Later, No Answer counts
+   - Table columns: Date, Contact, Account, Outcome, Notes, Owner, Actions (Task)
+   - "Log Call" button in header opens log modal pre-set to Call channel
+   - Phone script reference panel shown below table (if scripts exist)
+
+8. **Optimization**: Extract shared table rendering into a helper function `renderCommTable(comms, columns, channelType)` to avoid duplicating table markup across tabs. Each tab passes its filtered data and column config.
+
+9. **Optimization**: The existing `channelFilter` dropdown becomes redundant when on a specific channel tab — hide it on Email/LinkedIn/Call tabs, show only on "All" tab.
+
+10. Move "Send Email" button to appear only on All and Email tabs. Move "+ Log" to show on all tabs but pre-select the channel when on a specific tab.
+
+### Technical Details
+
+- No new files — all changes within `CampaignCommunications.tsx`
+- No database changes
+- The inner tabs use the existing `Tabs`/`TabsList`/`TabsTrigger`/`TabsContent` components
+- Summary stat cards use small inline `div` blocks with counts, not full `Card` components, to keep it compact
+- The `logModalOpen` handler will accept an optional `defaultChannel` param so clicking "+ Log Call" on the Call tab pre-selects "Call"
+- Existing thread view only shown on "All" tab (channel-specific tabs always use list view since threading across a single channel is less useful)
+
